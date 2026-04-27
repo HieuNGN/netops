@@ -5,28 +5,32 @@ import argparse
 from ipaddress import IPv4Address
 from typing import Optional
 
-from pysnmp.hlapi.v1arch import (
+from pysnmp.hlapi.asyncio import (
     CommunityData,
     ContextData,
     ObjectIdentity,
     SnmpEngine,
     UdpTransportTarget,
-    getCmd,
-    walkCmd,
+    get_cmd,
+    walk_cmd,
 )
 
 
 def get_sys_descr(host: str, community: str = "public") -> Optional[str]:
     """Get system description (sysDescr) from device."""
-    error_indication, error_status, error_index, var_binds = next(
-        getCmd(
+    import asyncio
+
+    async def _get():
+        error_indication, error_status, error_index, var_binds = await get_cmd(
             SnmpEngine(),
-            CommunityData(community, mpModel=0),
+            CommunityData(community),
             UdpTransportTarget((host, 161), timeout=5, retries=3),
             ContextData(),
             ObjectIdentity("1.3.6.1.2.1.1.1.0"),  # sysDescr
         )
-    )
+        return error_indication, error_status, error_index, var_binds
+
+    error_indication, error_status, error_index, var_binds = asyncio.run(_get())
 
     if error_indication:
         print(f"Error: {error_indication}")
@@ -43,16 +47,20 @@ def get_sys_descr(host: str, community: str = "public") -> Optional[str]:
 
 def walk_lldp_rem_port_id(host: str, community: str = "public") -> dict:
     """Walk LLDP remote port ID (lldpRemPortId)."""
-    result = {}
-    error_indication, error_status, error_index, var_binds = next(
-        walkCmd(
+    import asyncio
+
+    async def _walk():
+        result = {}
+        error_indication, error_status, error_index, var_binds = await walk_cmd(
             SnmpEngine(),
-            community,
+            CommunityData(community),
             UdpTransportTarget((host, 161), timeout=5, retries=3),
             ContextData(),
             ObjectIdentity("1.0.8802.1.1.2.1.4.1.1"),  # lldpRemPortId
         )
-    )
+        return result, error_indication, error_status, error_index, var_binds
+
+    result, error_indication, error_status, error_index, var_binds = asyncio.run(_walk())
 
     if error_indication:
         print(f"Error walking LLDP: {error_indication}")
@@ -85,45 +93,32 @@ def walk_lldp_neighbors(host: str, community: str = "public") -> list[dict]:
     - neighbor_name: The remote system name
     - neighbor_port: The remote port identifier
     """
-    # lldpRemPortId - Remote port identifier
-    port_result = {}
-    error_indication, error_status, error_index, var_binds = next(
-        walkCmd(
+    import asyncio
+
+    async def _walk_table(oid: str) -> dict:
+        """Walk a single LLDP table."""
+        result = {}
+        error_indication, error_status, error_index, var_binds = await walk_cmd(
             SnmpEngine(),
-            community,
+            CommunityData(community),
             UdpTransportTarget((host, 161), timeout=5, retries=3),
             ContextData(),
-            ObjectIdentity("1.0.8802.1.1.2.1.4.1.1"),  # lldpRemPortId
+            ObjectIdentity(oid),
         )
-    )
+        if error_indication:
+            print(f"Error walking {oid}: {error_indication}")
+            return {}
+        for var_bind in var_binds:
+            idx = _extract_lldp_index(str(var_bind[0]))
+            result[idx] = str(var_bind[1])
+        return result
 
-    if error_indication:
-        print(f"Error walking LLDP: {error_indication}")
-        return []
+    async def _walk():
+        port_result = await _walk_table("1.0.8802.1.1.2.1.4.1.1")  # lldpRemPortId
+        sys_result = await _walk_table("1.0.8802.1.1.2.1.3.7.1.4")  # lldpRemSysName
+        return port_result, sys_result
 
-    for var_bind in var_binds:
-        idx = _extract_lldp_index(str(var_bind[0]))
-        port_result[idx] = str(var_bind[1])
-
-    # lldpRemSysName - Remote system name
-    sys_result = {}
-    error_indication, error_status, error_index, var_binds = next(
-        walkCmd(
-            SnmpEngine(),
-            community,
-            UdpTransportTarget((host, 161), timeout=5, retries=3),
-            ContextData(),
-            ObjectIdentity("1.0.8802.1.1.2.1.3.7.1.4"),  # lldpRemSysName
-        )
-    )
-
-    if error_indication:
-        print(f"Error walking LLDP: {error_indication}")
-        return []
-
-    for var_bind in var_binds:
-        idx = _extract_lldp_index(str(var_bind[0]))
-        sys_result[idx] = str(var_bind[1])
+    port_result, sys_result = asyncio.run(_walk())
 
     # Correlate port and system name using the common index
     neighbors = []
