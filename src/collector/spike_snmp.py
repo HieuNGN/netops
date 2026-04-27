@@ -5,7 +5,7 @@ import argparse
 from ipaddress import IPv4Address
 from typing import Optional
 
-from pysnmp.hlapi import (
+from pysnmp.hlapi.v1arch import (
     CommunityData,
     ContextData,
     ObjectIdentity,
@@ -47,7 +47,7 @@ def walk_lldp_rem_port_id(host: str, community: str = "public") -> dict:
     error_indication, error_status, error_index, var_binds = next(
         walkCmd(
             SnmpEngine(),
-            CommunityData(community, mpModel=0),
+            community,
             UdpTransportTarget((host, 161), timeout=5, retries=3),
             ContextData(),
             ObjectIdentity("1.0.8802.1.1.2.1.4.1.1"),  # lldpRemPortId
@@ -90,7 +90,7 @@ def walk_lldp_neighbors(host: str, community: str = "public") -> list[dict]:
     error_indication, error_status, error_index, var_binds = next(
         walkCmd(
             SnmpEngine(),
-            CommunityData(community, mpModel=0),
+            community,
             UdpTransportTarget((host, 161), timeout=5, retries=3),
             ContextData(),
             ObjectIdentity("1.0.8802.1.1.2.1.4.1.1"),  # lldpRemPortId
@@ -110,7 +110,7 @@ def walk_lldp_neighbors(host: str, community: str = "public") -> list[dict]:
     error_indication, error_status, error_index, var_binds = next(
         walkCmd(
             SnmpEngine(),
-            CommunityData(community, mpModel=0),
+            community,
             UdpTransportTarget((host, 161), timeout=5, retries=3),
             ContextData(),
             ObjectIdentity("1.0.8802.1.1.2.1.3.7.1.4"),  # lldpRemSysName
@@ -166,9 +166,9 @@ def main():
 
     if args.action in ["lldp", "all"]:
         print(f"\n=== LLDP Neighbor Map ===")
-        neighbors = map_lldp_neighbors(args.host, args.community)
-        for local_port, neighbor in neighbors.items():
-            print(f"  {local_port} -> {neighbor['system_name']} ({neighbor['port_id']})")
+        neighbors = walk_lldp_neighbors(args.host, args.community)
+        for neighbor in neighbors:
+            print(f"  Index {neighbor['local_port_index']}: {neighbor['neighbor_name']} via {neighbor['neighbor_port']}")
 
     return 0
 
