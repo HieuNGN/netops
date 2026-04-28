@@ -1,7 +1,6 @@
 """SNMP Poller Service - Periodic polling orchestrator for network devices."""
 
 import asyncio
-import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional

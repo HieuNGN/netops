@@ -2,12 +2,13 @@
 
 import asyncio
 import json
+import sqlite3
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .config import ServerConfig
 from .discovery import add_discovered_devices
@@ -18,25 +19,29 @@ from .utils import logger
 # Global state
 poller: Optional[SNMPPoller] = None
 db_client: Optional[Any] = None
+alert_service: Optional[Any] = None
 topology_subscribers: list[asyncio.Queue] = []
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global poller, db_client
+    global poller, db_client, alert_service
 
     # Startup
     logger.info("Starting NetOps API server...")
 
     # Initialize database client
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
     from src.pb.client import EmbeddedPocketBase
 
     db_client = EmbeddedPocketBase(db_path="./data/netops.db")
     logger.info("Database initialized at ./data/netops.db")
+
+    # Initialize alert service
+    from src.api.services.alert_service import AlertService
+
+    alert_service = AlertService(db_client)
+    logger.info("Alert service initialized")
 
     # Initialize and start poller
     poller = SNMPPoller(db_client, poll_interval=30)
@@ -55,16 +60,21 @@ async def lifespan(app: FastAPI):
 
 
 async def on_topology_change(changes: dict[str, int], topology: dict[str, list]):
-    """Handle topology changes - notify subscribers."""
+    """Handle topology changes - notify subscribers and dispatch alerts."""
+    # Notify SSE subscribers
     message = json.dumps({"type": "topology_change", "changes": changes, "topology": topology})
     for queue in topology_subscribers:
         await queue.put(message)
+
+    # Dispatch alerts
+    if alert_service:
+        await alert_service.on_topology_change(changes, topology)
 
 
 app = FastAPI(
     title="NetOps API",
     description="Network topology discovery and monitoring",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -84,10 +94,17 @@ class DeviceUpdate(BaseModel):
 
 class AlertConfigCreate(BaseModel):
     name: str
-    alert_type: str  # device_down, link_down, topology_change
-    channel: str  # webhook, email, slack, discord
+    alert_type: str = Field(..., description="Type: device_down, device_up, link_down, topology_change")
+    channel: str = Field(..., description="Channel: webhook, slack, telegram, whatsapp, email")
     config: dict[str, Any] = {}
     enabled: bool = True
+
+    def model_validate(self, values):
+        """Validate channel is supported."""
+        valid_channels = {"webhook", "slack", "telegram", "whatsapp", "email"}
+        if values.get("channel") not in valid_channels:
+            raise ValueError(f"Unsupported channel. Must be one of: {valid_channels}")
+        return super().model_validate(values)
 
 
 class DiscoveryRequest(BaseModel):
@@ -102,6 +119,8 @@ def health_check():
     result = {"status": "ok"}
     if poller:
         result["poller"] = poller.get_stats()
+    if alert_service:
+        result["alert_service"] = {"initialized": True}
     return result
 
 
@@ -273,6 +292,14 @@ def create_alert(alert: AlertConfigCreate):
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+    # Validate channel
+    valid_channels = {"webhook", "slack", "telegram", "whatsapp", "email"}
+    if alert.channel not in valid_channels:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported channel. Must be one of: {valid_channels}",
+        )
+
     return db_client.create_alert_config(
         {
             "name": alert.name,
@@ -282,6 +309,70 @@ def create_alert(alert: AlertConfigCreate):
             "enabled": alert.enabled,
         }
     )
+
+
+@app.get("/alerts/history")
+def get_alert_history(limit: int = 50):
+    """Get recent alert history."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    conn = db_client.get_connection()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT ah.*, ac.name as alert_name, ac.channel
+        FROM alert_history ah
+        LEFT JOIN alert_configs ac ON ah.alert_config_id = ac.id
+        ORDER BY ah.triggered_at DESC
+        LIMIT ?
+    """,
+        (limit,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+@app.post("/alerts/{alert_id}/test")
+async def test_alert(alert_id: str):
+    """Send a test alert."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    if not alert_service:
+        raise HTTPException(status_code=503, detail="Alert service not initialized")
+
+    config = db_client._get_alert_config(alert_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Alert config not found")
+
+    from src.api.services.notifications.base import NotificationMessage
+
+    message = NotificationMessage(
+        title="Test Alert",
+        message="This is a test alert from NetOps",
+        severity="info",
+        alert_type="test",
+    )
+
+    channel = alert_service.get_notification_channel(config["channel"], config["config_json"])
+    if not channel:
+        raise HTTPException(status_code=400, detail="Invalid channel type")
+
+    valid, error = channel.validate_config()
+    if not valid:
+        raise HTTPException(status_code=400, detail=f"Invalid config: {error}")
+
+    try:
+        if config["channel"].lower() == "email":
+            success = channel.send(message)
+        else:
+            success = await channel.send(message)
+
+        return {"sent": success, "channel": config["channel"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Poll history endpoint
@@ -307,7 +398,3 @@ def get_poll_history(limit: int = 100):
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
-
-
-# Import sqlite3 for poll history
-import sqlite3
