@@ -97,7 +97,7 @@ class SNMPPoller:
 
     async def _poll_all_devices(self):
         """Poll all configured devices."""
-        devices = self.db_client.list_devices()
+        devices = await self.db_client.list_devices()
 
         if not devices:
             return
@@ -125,7 +125,7 @@ class SNMPPoller:
 
         # Get current topology and detect changes
         current_topology = self._topology_builder.to_json()
-        changes = self.db_client.upsert_topology(
+        changes = await self.db_client.upsert_topology(
             current_topology["nodes"], current_topology["links"]
         )
 
@@ -164,7 +164,7 @@ class SNMPPoller:
             self.stats.successful_polls += 1
 
             # Update device in database
-            self.db_client.update_device(
+            await self.db_client.update_device(
                 device["id"],
                 {
                     "status": "online",
@@ -174,7 +174,7 @@ class SNMPPoller:
             )
 
             # Record poll result
-            self.db_client.add_poll_result(
+            await self.db_client.add_poll_result(
                 device["id"], "online", response_time, ""
             )
 
@@ -192,12 +192,12 @@ class SNMPPoller:
             error_msg = str(e)
 
             # Update device status
-            self.db_client.update_device(
+            await self.db_client.update_device(
                 device["id"], {"status": "offline", "last_polled": time.strftime("%Y-%m-%d %H:%M:%S")}
             )
 
             # Record poll failure
-            self.db_client.add_poll_result(device["id"], "offline", 0, error_msg)
+            await self.db_client.add_poll_result(device["id"], "offline", 0, error_msg)
 
             return PollResult(
                 device_id=device["id"],
@@ -264,7 +264,7 @@ class SNMPPoller:
     async def poll_now(self) -> list[PollResult]:
         """Trigger an immediate poll of all devices."""
         await self._poll_all_devices()
-        devices = self.db_client.list_devices()
+        devices = await self.db_client.list_devices()
         results = []
         for device in devices:
             result = await self._poll_device(device)

@@ -123,7 +123,7 @@ class AlertService:
         stats = {"sent": 0, "failed": 0, "skipped": 0}
 
         # Get enabled alert configurations
-        alert_configs = self.db_client.list_alert_configs()
+        alert_configs = await self.db_client.list_alert_configs()
 
         if not alert_configs:
             stats["skipped"] = len(alerts)
@@ -171,7 +171,7 @@ class AlertService:
                     if success:
                         stats["sent"] += 1
                         # Record in alert history
-                        self._record_alert(config.get("id"), alert)
+                        await self._record_alert(config.get("id"), alert)
                     else:
                         stats["failed"] += 1
                 except Exception:
@@ -179,20 +179,17 @@ class AlertService:
 
         return stats
 
-    def _record_alert(self, alert_config_id: str, alert: dict[str, Any]):
+    async def _record_alert(self, alert_config_id: str, alert: dict[str, Any]):
         """Record alert in history."""
         try:
-            conn = self.db_client.get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO alert_history (alert_config_id, message, status)
-                VALUES (?, ?, 'triggered')
-            """,
-                (alert_config_id, alert.get("message", "")),
-            )
-            conn.commit()
-            conn.close()
+            async with self.db_client._get_connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO alert_history (alert_config_id, message, status)
+                    VALUES ($1, $2, 'triggered')
+                    """,
+                    alert_config_id, alert.get("message", ""),
+                )
         except Exception:
             pass  # Don't fail on history recording
 
@@ -233,3 +230,37 @@ class AlertService:
 
         # Update cache
         self._device_status_cache = current_statuses
+
+    async def on_check_result(self, result: Any):
+        """
+        Handle service check results and generate alerts.
+
+        Called by CheckScheduler when a check completes.
+        """
+        from src.collector.checks.base import CheckStatus
+
+        alerts = []
+
+        # Generate alerts based on check status
+        if result.status == CheckStatus.DOWN:
+            alerts.append({
+                "alert_type": "check_down",
+                "severity": "critical",
+                "title": f"Service Check Failed",
+                "message": f"{result.check_type} check for {result.target_id}: {result.message}",
+                "check_id": result.target_id,
+                "check_type": result.check_type,
+            })
+        elif result.status == CheckStatus.DEGRADED:
+            alerts.append({
+                "alert_type": "check_degraded",
+                "severity": "warning",
+                "title": f"Service Check Degraded",
+                "message": f"{result.check_type} check for {result.target_id}: {result.message}",
+                "check_id": result.target_id,
+                "check_type": result.check_type,
+            })
+
+        # Dispatch alerts if any
+        if alerts:
+            await self.dispatch_alerts(alerts)

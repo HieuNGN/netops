@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import sqlite3
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
@@ -18,6 +17,7 @@ from .utils import logger
 
 # Global state
 poller: Optional[SNMPPoller] = None
+check_scheduler: Optional[Any] = None
 db_client: Optional[Any] = None
 alert_service: Optional[Any] = None
 topology_subscribers: list[asyncio.Queue] = []
@@ -26,16 +26,18 @@ topology_subscribers: list[asyncio.Queue] = []
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global poller, db_client, alert_service
+    global poller, check_scheduler, db_client, alert_service
 
     # Startup
     logger.info("Starting NetOps API server...")
 
-    # Initialize database client
-    from src.pb.client import EmbeddedPocketBase
+    # Initialize database client (PostgreSQL)
+    from src.storage.database import AsyncPostgresClient
 
-    db_client = EmbeddedPocketBase(db_path="./data/netops.db")
-    logger.info("Database initialized at ./data/netops.db")
+    db_client = AsyncPostgresClient()
+    await db_client.connect()
+    await db_client.init_db()
+    logger.info("PostgreSQL database initialized")
 
     # Initialize alert service
     from src.api.services.alert_service import AlertService
@@ -49,14 +51,31 @@ async def lifespan(app: FastAPI):
     await poller.start()
     logger.info("SNMP poller started with 30s interval")
 
+    # Initialize and start service check scheduler
+    from src.collector.checks.scheduler import CheckScheduler
+
+    check_scheduler = CheckScheduler(db_client)
+    check_scheduler.set_check_result_handler(on_check_result)
+    await check_scheduler.start()
+    logger.info("Service check scheduler initialized")
+
     yield
 
     # Shutdown
     logger.info("Shutting down NetOps API server...")
     if poller:
         await poller.stop()
+    if check_scheduler:
+        await check_scheduler.stop()
     if db_client:
-        db_client.close()
+        await db_client.close()
+
+
+async def on_check_result(result: Any):
+    """Handle service check results."""
+    # Evaluate and dispatch alerts based on check results
+    if alert_service and result:
+        await alert_service.on_check_result(result)
 
 
 async def on_topology_change(changes: dict[str, int], topology: dict[str, list]):
@@ -69,6 +88,39 @@ async def on_topology_change(changes: dict[str, int], topology: dict[str, list])
     # Dispatch alerts
     if alert_service:
         await alert_service.on_topology_change(changes, topology)
+
+
+# Request/Response models
+class DeviceCreate(BaseModel):
+    name: str
+    ip_address: str
+    community: str = "public"
+
+
+class DeviceUpdate(BaseModel):
+    name: Optional[str] = None
+    community: Optional[str] = None
+    status: Optional[str] = None
+
+
+class AlertConfigCreate(BaseModel):
+    name: str
+    alert_type: str = Field(..., description="Type: device_down, device_up, link_down, topology_change")
+    channel: str = Field(..., description="Channel: webhook, slack, telegram, whatsapp, email")
+    config: dict[str, Any] = {}
+    enabled: bool = True
+
+    def model_validate(self, values):
+        """Validate channel is supported."""
+        valid_channels = {"webhook", "slack", "telegram", "whatsapp", "email"}
+        if values.get("channel") not in valid_channels:
+            raise ValueError(f"Unsupported channel. Must be one of: {valid_channels}")
+        return super().model_validate(values)
+
+
+class DiscoveryRequest(BaseModel):
+    network_range: str
+    community: str = "public"
 
 
 app = FastAPI(
@@ -114,7 +166,7 @@ class DiscoveryRequest(BaseModel):
 
 # Health endpoint
 @app.get("/health")
-def health_check():
+async def health_check():
     """Health check endpoint."""
     result = {"status": "ok"}
     if poller:
@@ -126,12 +178,12 @@ def health_check():
 
 # Topology endpoints
 @app.get("/topology")
-def get_topology():
+async def get_topology():
     """Get current network topology."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    topology = db_client.list_topology()
+    topology = await db_client.list_topology()
     return topology
 
 
@@ -145,7 +197,7 @@ async def stream_topology():
 
         try:
             # Send initial topology
-            current = db_client.list_topology() if db_client else {"nodes": [], "links": []}
+            current = await db_client.list_topology() if db_client else {"nodes": [], "links": []}
             yield f"data: {json.dumps({'type': 'initial', 'topology': current})}\n\n"
 
             # Stream updates
@@ -175,26 +227,26 @@ async def refresh_topology():
         raise HTTPException(status_code=503, detail="Poller not initialized")
 
     await poller.poll_now()
-    return {"status": "refreshed", "topology": db_client.list_topology() if db_client else {}}
+    return {"status": "refreshed", "topology": await db_client.list_topology() if db_client else {}}
 
 
 # Device endpoints
 @app.get("/devices")
-def list_devices():
+async def list_devices():
     """List all configured devices."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    return db_client.list_devices()
+    return await db_client.list_devices()
 
 
 @app.get("/devices/{device_id}")
-def get_device(device_id: str):
+async def get_device(device_id: str):
     """Get a specific device by ID or IP."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    device = db_client.get_device(device_id)
+    device = await db_client.get_device(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
@@ -202,17 +254,17 @@ def get_device(device_id: str):
 
 
 @app.post("/devices")
-def create_device(device: DeviceCreate):
+async def create_device(device: DeviceCreate):
     """Add a new device to monitor."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
     # Check if device already exists
-    existing = db_client.get_device(device.ip_address)
+    existing = await db_client.get_device(device.ip_address)
     if existing:
         raise HTTPException(status_code=409, detail="Device already exists")
 
-    return db_client.create_device(
+    return await db_client.create_device(
         {
             "name": device.name,
             "ip_address": device.ip_address,
@@ -223,26 +275,26 @@ def create_device(device: DeviceCreate):
 
 
 @app.put("/devices/{device_id}")
-def update_device(device_id: str, device: DeviceUpdate):
+async def update_device(device_id: str, device: DeviceUpdate):
     """Update an existing device."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    existing = db_client.get_device(device_id)
+    existing = await db_client.get_device(device_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Device not found")
 
     update_data = {k: v for k, v in device.model_dump().items() if v is not None}
-    return db_client.update_device(device_id, update_data)
+    return await db_client.update_device(device_id, update_data)
 
 
 @app.delete("/devices/{device_id}")
-def delete_device(device_id: str):
+async def delete_device(device_id: str):
     """Delete a device."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    if not db_client.delete_device(device_id):
+    if not await db_client.delete_device(device_id):
         raise HTTPException(status_code=404, detail="Device not found")
 
     return {"status": "deleted"}
@@ -278,16 +330,16 @@ def get_poller_stats():
 
 # Alert endpoints
 @app.get("/alerts")
-def list_alerts():
+async def list_alerts():
     """List all alert configurations."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    return db_client.list_alert_configs()
+    return await db_client.list_alert_configs()
 
 
 @app.post("/alerts")
-def create_alert(alert: AlertConfigCreate):
+async def create_alert(alert: AlertConfigCreate):
     """Create a new alert configuration."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -300,7 +352,7 @@ def create_alert(alert: AlertConfigCreate):
             detail=f"Unsupported channel. Must be one of: {valid_channels}",
         )
 
-    return db_client.create_alert_config(
+    return await db_client.create_alert_config(
         {
             "name": alert.name,
             "alert_type": alert.alert_type,
@@ -312,27 +364,23 @@ def create_alert(alert: AlertConfigCreate):
 
 
 @app.get("/alerts/history")
-def get_alert_history(limit: int = 50):
+async def get_alert_history(limit: int = 50):
     """Get recent alert history."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    conn = db_client.get_connection()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT ah.*, ac.name as alert_name, ac.channel
-        FROM alert_history ah
-        LEFT JOIN alert_configs ac ON ah.alert_config_id = ac.id
-        ORDER BY ah.triggered_at DESC
-        LIMIT ?
-    """,
-        (limit,),
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    async with db_client._get_connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT ah.*, ac.name as alert_name, ac.channel
+            FROM alert_history ah
+            LEFT JOIN alert_configs ac ON ah.alert_config_id = ac.id
+            ORDER BY ah.triggered_at DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+        return [dict(row) for row in rows]
 
 
 @app.post("/alerts/{alert_id}/test")
@@ -343,7 +391,7 @@ async def test_alert(alert_id: str):
     if not alert_service:
         raise HTTPException(status_code=503, detail="Alert service not initialized")
 
-    config = db_client._get_alert_config(alert_id)
+    config = await db_client._get_alert_config(alert_id)
     if not config:
         raise HTTPException(status_code=404, detail="Alert config not found")
 
@@ -377,24 +425,196 @@ async def test_alert(alert_id: str):
 
 # Poll history endpoint
 @app.get("/poll-history")
-def get_poll_history(limit: int = 100):
+async def get_poll_history(limit: int = 100):
     """Get recent poll history."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    conn = db_client.get_connection()
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT ph.*, d.ip_address, d.name
-        FROM poll_history ph
-        LEFT JOIN devices d ON ph.device_id = d.id
-        ORDER BY ph.polled_at DESC
-        LIMIT ?
-    """,
-        (limit,),
+    async with db_client._get_connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT ph.*, d.ip_address, d.name
+            FROM poll_history ph
+            LEFT JOIN devices d ON ph.device_id = d.id
+            ORDER BY ph.polled_at DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+
+# Service Check endpoints
+class ServiceCheckCreate(BaseModel):
+    name: str
+    check_type: str = Field(..., description="Type: http, tcp, dns, ping, ssl")
+    target: str
+    interval_seconds: int = 60
+    timeout_seconds: int = 10
+    config: dict[str, Any] = {}
+    enabled: bool = True
+
+
+class ServiceCheckUpdate(BaseModel):
+    name: Optional[str] = None
+    interval_seconds: Optional[int] = None
+    timeout_seconds: Optional[int] = None
+    config: Optional[dict[str, Any]] = None
+    enabled: Optional[bool] = None
+
+
+@app.get("/checks")
+async def list_service_checks():
+    """List all service checks."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    return await db_client.list_service_checks()
+
+
+@app.get("/checks/{check_id}")
+async def get_service_check(check_id: str):
+    """Get a specific service check."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    check = await db_client.get_service_check(check_id)
+    if not check:
+        raise HTTPException(status_code=404, detail="Service check not found")
+
+    return check
+
+
+@app.post("/checks")
+async def create_service_check(check: ServiceCheckCreate):
+    """Create a new service check."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    # Validate check type
+    valid_types = {"http", "tcp", "dns", "ping", "ssl"}
+    if check.check_type not in valid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid check type. Must be one of: {valid_types}",
+        )
+
+    result = await db_client.create_service_check(
+        {
+            "name": check.name,
+            "check_type": check.check_type,
+            "target": check.target,
+            "interval_seconds": check.interval_seconds,
+            "timeout_seconds": check.timeout_seconds,
+            "config": check.config,
+            "enabled": check.enabled,
+        }
     )
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+
+    # Add to scheduler if enabled
+    if check_scheduler and result:
+        from src.collector.checks.base import CheckDefinition
+
+        definition = CheckDefinition(
+            id=result["id"],
+            name=result["name"],
+            check_type=result["check_type"],
+            target=result["target"],
+            interval_seconds=result["interval_seconds"],
+            timeout_seconds=result["timeout_seconds"],
+            enabled=result["enabled"],
+            config=result.get("config_json", {}),
+        )
+        check_scheduler.add_check(definition)
+
+    return result
+
+
+@app.put("/checks/{check_id}")
+async def update_service_check(check_id: str, check: ServiceCheckUpdate):
+    """Update an existing service check."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    existing = await db_client.get_service_check(check_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Service check not found")
+
+    update_data = {k: v for k, v in check.model_dump().items() if v is not None}
+    result = await db_client.update_service_check(check_id, update_data)
+
+    # Update scheduler if enabled status changed
+    if check_scheduler and result:
+        if check.enabled is False:
+            check_scheduler.remove_check(check_id)
+        elif check.enabled is True:
+            from src.collector.checks.base import CheckDefinition
+
+            definition = CheckDefinition(
+                id=result["id"],
+                name=result["name"],
+                check_type=result["check_type"],
+                target=result["target"],
+                interval_seconds=result["interval_seconds"],
+                timeout_seconds=result["timeout_seconds"],
+                enabled=result["enabled"],
+                config=result.get("config_json", {}),
+            )
+            check_scheduler.add_check(definition)
+
+    return result
+
+
+@app.delete("/checks/{check_id}")
+async def delete_service_check(check_id: str):
+    """Delete a service check."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    # Remove from scheduler first
+    if check_scheduler:
+        check_scheduler.remove_check(check_id)
+
+    if not await db_client.delete_service_check(check_id):
+        raise HTTPException(status_code=404, detail="Service check not found")
+
+    return {"status": "deleted"}
+
+
+@app.post("/checks/{check_id}/run")
+async def run_service_check_now(check_id: str):
+    """Run a service check immediately."""
+    if not check_scheduler:
+        raise HTTPException(status_code=503, detail="Check scheduler not initialized")
+
+    result = await check_scheduler.run_check_now(check_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Service check not found")
+
+    return {
+        "target_id": result.target_id,
+        "check_type": result.check_type,
+        "status": result.status.value,
+        "response_time_ms": result.response_time_ms,
+        "message": result.message,
+        "details": result.details,
+        "error": result.error,
+    }
+
+
+@app.get("/checks/{check_id}/results")
+async def get_check_results(check_id: str, limit: int = 100):
+    """Get recent check results."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    return await db_client.get_check_results(check_id, limit)
+
+
+@app.get("/checks/stats")
+async def get_check_stats():
+    """Get check scheduler statistics."""
+    if not check_scheduler:
+        raise HTTPException(status_code=503, detail="Check scheduler not initialized")
+
+    return check_scheduler.get_stats()
