@@ -14,17 +14,7 @@ Network topology discovery and monitoring system modeled after CheckCle.
 
 ## Quick Start
 
-### 1. Start PostgreSQL
-
-```bash
-# Using Docker Compose (recommended)
-./scripts/setup_postgres.sh
-
-# Or manually
-docker compose -f docker/docker-compose.yml up -d postgres
-```
-
-### 2. Install Dependencies
+### 1. Install Dependencies
 
 ```bash
 # Create virtual environment
@@ -35,13 +25,7 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-### 3. Run Migrations
-
-```bash
-python scripts/migrate.py upgrade head
-```
-
-### 4. Start the API Server
+### 2. Start the API Server
 
 ```bash
 uvicorn src.collector.main:app --reload
@@ -192,13 +176,13 @@ docker/
 | Phase 2 | ✅ Complete | Alerting and multi-channel notifications |
 | Phase 2.5 | ✅ Complete | PostgreSQL migration |
 | Phase 3 | ✅ Complete | Service checks (HTTP, TCP, DNS, Ping, SSL) |
-| Phase 4 | ⏳ Pending | React frontend dashboard |
+| Phase 4 | ✅ Complete | React frontend dashboard |
 | Phase 5 | ⏳ Pending | Docker deployment |
 | Phase 6 | ⏳ Pending | Advanced features (distributed agents, analytics) |
 
 ## Project Stats
 
-- **Version:** 0.4.0
-- **Lines of Code:** ~4,500
+- **Version:** 0.5.0
+- **Lines of Code:** ~6,500
 - **Test Coverage:** 19 unit tests (notification channels)
 - **Python Version:** 3.11+

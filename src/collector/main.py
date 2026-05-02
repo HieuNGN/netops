@@ -31,13 +31,22 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting NetOps API server...")
 
-    # Initialize database client (PostgreSQL)
-    from src.storage.database import AsyncPostgresClient
+    # Initialize database client (PostgreSQL with SQLite fallback)
+    try:
+        from src.storage.database import AsyncPostgresClient
 
-    db_client = AsyncPostgresClient()
-    await db_client.connect()
-    await db_client.init_db()
-    logger.info("PostgreSQL database initialized")
+        db_client = AsyncPostgresClient()
+        await db_client.connect()
+        await db_client.init_db()
+        logger.info("PostgreSQL database initialized")
+    except Exception as e:
+        logger.warning(f"PostgreSQL not available ({e}), falling back to SQLite")
+        from src.storage.sqlite_client import AsyncSQLiteClient
+
+        db_client = AsyncSQLiteClient()
+        await db_client.connect()
+        await db_client.init_db()
+        logger.info("SQLite database initialized at ./data/netops.db")
 
     # Initialize alert service
     from src.api.services.alert_service import AlertService
