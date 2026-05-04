@@ -239,6 +239,77 @@ async def refresh_topology():
     return {"status": "refreshed", "topology": await db_client.list_topology() if db_client else {}}
 
 
+@app.post("/topology/simulate")
+async def simulate_topology():
+    """Generate simulated network topology for demo purposes."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    # Simulated devices representing a typical network hierarchy
+    simulated_devices = [
+        {"name": "Core-Router-1", "ip_address": "192.168.1.1", "community": "public"},
+        {"name": "Core-Router-2", "ip_address": "192.168.1.2", "community": "public"},
+        {"name": "Distribution-SW-1", "ip_address": "192.168.1.10", "community": "public"},
+        {"name": "Distribution-SW-2", "ip_address": "192.168.1.11", "community": "public"},
+        {"name": "Access-SW-1", "ip_address": "192.168.1.100", "community": "public"},
+        {"name": "Access-SW-2", "ip_address": "192.168.1.101", "community": "public"},
+        {"name": "Access-SW-3", "ip_address": "192.168.1.102", "community": "public"},
+        {"name": "Firewall-1", "ip_address": "192.168.1.254", "community": "public"},
+    ]
+
+    # Build topology nodes directly (will be upserted)
+    nodes = []
+    for dev in simulated_devices:
+        node_type = "router" if "Router" in dev["name"] else "firewall" if "Firewall" in dev["name"] else "switch"
+        nodes.append({
+            "id": dev["ip_address"],
+            "device_id": dev["ip_address"],
+            "label": dev["name"],
+            "node_type": node_type,
+            "status": "online",
+        })
+
+    # Build topology links (hierarchical network design)
+    links_data = [
+        ("192.168.1.254", "192.168.1.1", "eth0", "ge-0/0/0"),
+        ("192.168.1.254", "192.168.1.2", "eth1", "ge-0/0/0"),
+        ("192.168.1.1", "192.168.1.2", "ge-0/0/1", "ge-0/0/1"),
+        ("192.168.1.1", "192.168.1.10", "ge-0/0/2", "xe-0/0/1"),
+        ("192.168.1.2", "192.168.1.11", "ge-0/0/2", "xe-0/0/1"),
+        ("192.168.1.10", "192.168.1.100", "ge-0/0/1", "ge-0/0/1"),
+        ("192.168.1.10", "192.168.1.101", "ge-0/0/2", "ge-0/0/1"),
+        ("192.168.1.11", "192.168.1.102", "ge-0/0/1", "ge-0/0/1"),
+    ]
+
+    links = []
+    for src_ip, tgt_ip, src_port, tgt_port in links_data:
+        links.append({
+            "id": f"{src_ip}-{tgt_ip}",
+            "source": src_ip,
+            "target": tgt_ip,
+            "source_port": src_port,
+            "target_port": tgt_port,
+            "status": "active",
+        })
+
+    # Retry with backoff to handle poller DB contention
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            changes = await db_client.upsert_topology(nodes, links)
+            return {
+                "status": "simulated",
+                "nodes": len(nodes),
+                "links": len(links),
+                "changes": changes,
+            }
+        except Exception as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0 * (attempt + 1))
+            else:
+                raise HTTPException(status_code=503, detail=f"Database busy: {str(e)}")
+
+
 # Device endpoints
 @app.get("/devices")
 async def list_devices():

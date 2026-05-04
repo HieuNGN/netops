@@ -1,12 +1,26 @@
 import { useRef, useMemo, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { RefreshCw, ZoomIn, ZoomOut, Network } from 'lucide-react';
 import { useTopology } from '../hooks/useTopology';
+import { apiClient } from '../api';
 
 export function Topology() {
   const { topology, isLoading, refresh, isStreaming, lastUpdate } = useTopology();
   const graphRef = useRef<any>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
+
+  const handleSimulate = async () => {
+    setIsSimulating(true);
+    try {
+      await apiClient.post('/topology/simulate');
+      await refresh();
+    } catch (error) {
+      console.error('Failed to simulate topology:', error);
+    } finally {
+      setIsSimulating(false);
+    }
+  };
 
   const graphData = useMemo(() => ({
     nodes: topology.nodes.map((n) => ({
@@ -96,6 +110,15 @@ export function Topology() {
               <ZoomOut className="h-5 w-5" />
             </button>
             <button
+              onClick={handleSimulate}
+              disabled={isSimulating}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Generate simulated network topology for demo"
+            >
+              <Network className="h-4 w-4" />
+              <span>{isSimulating ? 'Generating...' : 'Simulate Network'}</span>
+            </button>
+            <button
               onClick={refresh}
               className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
             >
@@ -127,7 +150,7 @@ export function Topology() {
             }
             onNodeClick={handleNodeClick}
             onLinkClick={handleLinkClick}
-            backgroundColor="#f9fafb"
+            backgroundColor="transparent"
             cooldownTime={1000}
             d3AlphaDecay={0.02}
           />

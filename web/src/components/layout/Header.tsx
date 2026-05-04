@@ -18,15 +18,18 @@ const themeIcons = {
   system: Monitor,
 };
 
+const themeLabels = {
+  light: 'Light mode',
+  dark: 'Dark mode',
+  system: 'System preference',
+};
+
 export function Header() {
   const location = useLocation();
-  const { theme, setTheme } = useTheme();
-
-  const toggleTheme = () => {
-    setTheme(theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light');
-  };
+  const { theme, toggleTheme } = useTheme();
 
   const ThemeIcon = themeIcons[theme];
+  const currentThemeLabel = themeLabels[theme];
 
   return (
     <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
@@ -63,7 +66,7 @@ export function Header() {
               <button
                 onClick={toggleTheme}
                 className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                title={`Theme: ${theme} (click to change)`}
+                title={`Theme: ${currentThemeLabel} (click to cycle)`}
               >
                 <ThemeIcon className="h-4 w-4" />
               </button>

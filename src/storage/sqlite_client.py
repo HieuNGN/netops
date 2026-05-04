@@ -15,13 +15,15 @@ class AsyncSQLiteClient:
     def __init__(self, db_path: str = "./data/netops.db"):
         self._db_path = db_path
         self._db: Optional[aiosqlite.Connection] = None
+        self._lock = asyncio.Lock()
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
     async def connect(self):
         """Initialize database connection."""
-        self._db = await aiosqlite.connect(self._db_path)
+        self._db = await aiosqlite.connect(self._db_path, timeout=30.0)
         self._db.row_factory = aiosqlite.Row
         await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA busy_timeout=30000")
         await self._db.commit()
 
     async def disconnect(self):
@@ -202,6 +204,13 @@ class AsyncSQLiteClient:
         return cursor.rowcount == 1
 
     # Topology methods
+    async def clear_topology(self):
+        """Clear all topology data (nodes and links)."""
+        async with self._lock:
+            await self._db.execute("DELETE FROM topology_links")
+            await self._db.execute("DELETE FROM topology_nodes")
+            await self._db.commit()
+
     async def list_topology(self) -> dict[str, list[dict[str, Any]]]:
         """Get current topology as nodes/links."""
         cursor = await self._db.execute("SELECT * FROM topology_nodes")
@@ -214,50 +223,51 @@ class AsyncSQLiteClient:
         self, nodes: list[dict[str, Any]], links: list[dict[str, Any]]
     ) -> dict[str, int]:
         """Upsert topology data, detecting changes."""
-        changes = {
-            "nodes_added": 0, "nodes_removed": 0,
-            "links_added": 0, "links_removed": 0,
-        }
+        async with self._lock:
+            changes = {
+                "nodes_added": 0, "nodes_removed": 0,
+                "links_added": 0, "links_removed": 0,
+            }
 
-        # Get existing node IDs
-        cursor = await self._db.execute("SELECT id FROM topology_nodes")
-        existing_node_ids = {row["id"] for row in await cursor.fetchall()}
-        new_node_ids = {n["id"] for n in nodes}
+            # Get existing node IDs
+            cursor = await self._db.execute("SELECT id FROM topology_nodes")
+            existing_node_ids = {row["id"] for row in await cursor.fetchall()}
+            new_node_ids = {n["id"] for n in nodes}
 
-        # Detect removed nodes
-        removed_ids = existing_node_ids - new_node_ids
-        changes["nodes_removed"] = len(removed_ids)
+            # Detect removed nodes
+            removed_ids = existing_node_ids - new_node_ids
+            changes["nodes_removed"] = len(removed_ids)
 
-        # Upsert nodes
-        for node in nodes:
-            await self._db.execute(
-                """
-                INSERT INTO topology_nodes (id, device_id, label, node_type, status)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (id) DO UPDATE SET
-                    device_id = excluded.device_id,
-                    label = excluded.label,
-                    node_type = excluded.node_type,
-                    status = excluded.status,
-                    updated = datetime('now')
-                """,
-                (node["id"], node.get("device_id"), node.get("label", ""),
-                 node.get("node_type", "device"), node.get("status", "unknown"))
-            )
-            if node["id"] not in existing_node_ids:
-                changes["nodes_added"] += 1
+            # Upsert nodes
+            for node in nodes:
+                await self._db.execute(
+                    """
+                    INSERT INTO topology_nodes (id, device_id, label, node_type, status)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET
+                        device_id = excluded.device_id,
+                        label = excluded.label,
+                        node_type = excluded.node_type,
+                        status = excluded.status,
+                        updated = datetime('now')
+                    """,
+                    (node["id"], node.get("device_id"), node.get("label", ""),
+                     node.get("node_type", "device"), node.get("status", "unknown"))
+                )
+                if node["id"] not in existing_node_ids:
+                    changes["nodes_added"] += 1
 
-        # Delete removed nodes
-        if removed_ids:
-            placeholders = ",".join("?" * len(removed_ids))
-            await self._db.execute(
-                f"DELETE FROM topology_nodes WHERE id IN ({placeholders})",
-                list(removed_ids)
-            )
+            # Delete removed nodes
+            if removed_ids:
+                placeholders = ",".join("?" * len(removed_ids))
+                await self._db.execute(
+                    f"DELETE FROM topology_nodes WHERE id IN ({placeholders})",
+                    list(removed_ids)
+                )
 
-        # Get existing link IDs
-        cursor = await self._db.execute("SELECT id FROM topology_links")
-        existing_link_ids = {row["id"] for row in await cursor.fetchall()}
+            # Get existing link IDs
+            cursor = await self._db.execute("SELECT id FROM topology_links")
+            existing_link_ids = {row["id"] for row in await cursor.fetchall()}
 
         # Generate link IDs if not present
         for link in links:
@@ -269,43 +279,43 @@ class AsyncSQLiteClient:
                     )
                 )
 
-        new_link_ids = {link["id"] for link in links}
+            new_link_ids = {link["id"] for link in links}
 
-        # Detect removed links
-        removed_link_ids = existing_link_ids - new_link_ids
-        changes["links_removed"] = len(removed_link_ids)
+            # Detect removed links
+            removed_link_ids = existing_link_ids - new_link_ids
+            changes["links_removed"] = len(removed_link_ids)
 
-        # Upsert links
-        for link in links:
-            await self._db.execute(
-                """
-                INSERT INTO topology_links (id, source_id, target_id, source_port, target_port, status)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (id) DO UPDATE SET
-                    source_id = excluded.source_id,
-                    target_id = excluded.target_id,
-                    source_port = excluded.source_port,
-                    target_port = excluded.target_port,
-                    status = excluded.status,
-                    updated = datetime('now')
-                """,
-                (link["id"], link["source"], link["target"],
-                 link.get("source_port", ""), link.get("target_port", ""),
-                 link.get("status", "active"))
-            )
-            if link["id"] not in existing_link_ids:
-                changes["links_added"] += 1
+            # Upsert links
+            for link in links:
+                await self._db.execute(
+                    """
+                    INSERT INTO topology_links (id, source_id, target_id, source_port, target_port, status)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET
+                        source_id = excluded.source_id,
+                        target_id = excluded.target_id,
+                        source_port = excluded.source_port,
+                        target_port = excluded.target_port,
+                        status = excluded.status,
+                        updated = datetime('now')
+                    """,
+                    (link["id"], link["source"], link["target"],
+                     link.get("source_port", ""), link.get("target_port", ""),
+                     link.get("status", "active"))
+                )
+                if link["id"] not in existing_link_ids:
+                    changes["links_added"] += 1
 
-        # Delete removed links
-        if removed_link_ids:
-            placeholders = ",".join("?" * len(removed_link_ids))
-            await self._db.execute(
-                f"DELETE FROM topology_links WHERE id IN ({placeholders})",
-                list(removed_link_ids)
-            )
+            # Delete removed links
+            if removed_link_ids:
+                placeholders = ",".join("?" * len(removed_link_ids))
+                await self._db.execute(
+                    f"DELETE FROM topology_links WHERE id IN ({placeholders})",
+                    list(removed_link_ids)
+                )
 
-        await self._db.commit()
-        return changes
+            await self._db.commit()
+            return changes
 
     async def add_poll_result(
         self, device_id: str, status: str, response_time_ms: float = 0, error: str = ""
