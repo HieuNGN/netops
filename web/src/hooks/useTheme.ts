@@ -13,8 +13,11 @@ function applyThemeToDom(theme: Theme) {
   const root = window.document.documentElement;
   const effective = getEffectiveTheme(theme);
 
+  // Only add 'dark' class for dark mode; light mode is default (no class)
   root.classList.remove('light', 'dark');
-  root.classList.add(effective);
+  if (effective === 'dark') {
+    root.classList.add('dark');
+  }
   root.setAttribute('data-theme', effective);
   localStorage.setItem('theme', theme);
 
