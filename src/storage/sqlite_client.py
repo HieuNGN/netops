@@ -134,6 +134,20 @@ class AsyncSQLiteClient:
             CREATE INDEX IF NOT EXISTS idx_service_checks_enabled ON service_checks(enabled);
             CREATE INDEX IF NOT EXISTS idx_check_results_check_id ON check_results(check_id);
             CREATE INDEX IF NOT EXISTS idx_check_results_checked_at ON check_results(checked_at);
+
+            -- Topology change history for auditing and trend analysis
+            CREATE TABLE IF NOT EXISTS topology_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                node_id TEXT,
+                link_id TEXT,
+                old_status TEXT,
+                new_status TEXT,
+                details TEXT,
+                recorded_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_topology_history_event ON topology_history(event_type);
+            CREATE INDEX IF NOT EXISTS idx_topology_history_recorded_at ON topology_history(recorded_at);
         """)
         await self._db.commit()
 
@@ -314,8 +328,53 @@ class AsyncSQLiteClient:
                     list(removed_link_ids)
                 )
 
+            # Record topology changes in history
+            if changes["nodes_added"] > 0 or changes["nodes_removed"] > 0 or changes["links_added"] > 0 or changes["links_removed"] > 0:
+                await self._record_topology_changes(changes, nodes, links)
+
             await self._db.commit()
             return changes
+
+    async def _record_topology_changes(self, changes: dict, nodes: list, links: list):
+        """Record topology changes in history table for auditing."""
+        event_type = "topology_change"
+        if changes["nodes_added"] > 0:
+            for node in nodes:
+                await self._db.execute(
+                    "INSERT INTO topology_history (event_type, node_id, new_status, details) VALUES (?, ?, ?, ?)",
+                    (event_type, node["id"], node.get("status", "unknown"), json.dumps({"action": "added", "type": "node"}))
+                )
+        if changes["links_added"] > 0:
+            for link in links:
+                await self._db.execute(
+                    "INSERT INTO topology_history (event_type, link_id, new_status, details) VALUES (?, ?, ?, ?)",
+                    (event_type, link.get("id"), link.get("status", "active"), json.dumps({"action": "added", "type": "link"}))
+                )
+        if changes["nodes_removed"] > 0:
+            await self._db.execute(
+                "INSERT INTO topology_history (event_type, details) VALUES (?, ?)",
+                (event_type, json.dumps({"action": "removed", "type": "nodes", "count": changes["nodes_removed"]}))
+            )
+        if changes["links_removed"] > 0:
+            await self._db.execute(
+                "INSERT INTO topology_history (event_type, details) VALUES (?, ?)",
+                (event_type, json.dumps({"action": "removed", "type": "links", "count": changes["links_removed"]}))
+            )
+
+    async def get_topology_history(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get recent topology change history."""
+        cursor = await self._db.execute(
+            "SELECT * FROM topology_history ORDER BY recorded_at DESC LIMIT ?",
+            (limit,)
+        )
+        rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("details"):
+                d["details"] = json.loads(d["details"]) if isinstance(d["details"], str) else d["details"]
+            result.append(d)
+        return result
 
     async def add_poll_result(
         self, device_id: str, status: str, response_time_ms: float = 0, error: str = ""

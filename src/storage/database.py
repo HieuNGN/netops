@@ -282,6 +282,22 @@ class AsyncPostgresClient:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_check_results_check_id ON check_results(check_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_check_results_checked_at ON check_results(checked_at)")
 
+            -- Topology change history for auditing and trend analysis
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS topology_history (
+                    id SERIAL PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    node_id TEXT,
+                    link_id TEXT,
+                    old_status TEXT,
+                    new_status TEXT,
+                    details JSONB,
+                    recorded_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_topology_history_event ON topology_history(event_type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_topology_history_recorded_at ON topology_history(recorded_at)")
+
     async def list_devices(self) -> list[dict[str, Any]]:
         """List all devices."""
         async with self._get_connection() as conn:
@@ -625,6 +641,41 @@ class AsyncPostgresClient:
                 LIMIT $2
                 """,
                 check_id,
+                limit,
+            )
+            result = []
+            for row in rows:
+                d = dict(row)
+                if d.get("details"):
+                    d["details"] = json.loads(d["details"]) if isinstance(d["details"], str) else d["details"]
+                result.append(d)
+            return result
+
+    async def record_topology_change(
+        self,
+        event_type: str,
+        node_id: Optional[str] = None,
+        link_id: Optional[str] = None,
+        old_status: Optional[str] = None,
+        new_status: Optional[str] = None,
+        details: Optional[dict[str, Any]] = None,
+    ):
+        """Record a topology change event in history."""
+        async with self._get_connection() as conn:
+            details_json = json.dumps(details) if details else None
+            await conn.execute(
+                """
+                INSERT INTO topology_history (event_type, node_id, link_id, old_status, new_status, details)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                """,
+                event_type, node_id, link_id, old_status, new_status, details_json,
+            )
+
+    async def get_topology_history(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get recent topology change history."""
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM topology_history ORDER BY recorded_at DESC LIMIT $1",
                 limit,
             )
             result = []

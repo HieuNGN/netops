@@ -378,6 +378,16 @@ async def delete_device(device_id: str):
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+
+# Topology history endpoint (Phase 6)
+@app.get("/topology/history")
+async def get_topology_history(limit: int = 100):
+    """Get topology change history for auditing and trend analysis."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    return {"events": await db_client.get_topology_history(limit)}
+
     if not await db_client.delete_device(device_id):
         raise HTTPException(status_code=404, detail="Device not found")
 
