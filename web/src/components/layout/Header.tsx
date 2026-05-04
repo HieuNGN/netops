@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Network, Activity, Server, AlertTriangle, Settings, Sun, Moon, Monitor } from 'lucide-react';
+import { Network, Activity, Server, AlertTriangle, Settings, Sun, Moon } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import { ConnectionStatus } from './ConnectionStatus';
 
@@ -12,24 +12,9 @@ const navItems = [
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
-const themeIcons = {
-  light: Sun,
-  dark: Moon,
-  system: Monitor,
-};
-
-const themeLabels = {
-  light: 'Light mode',
-  dark: 'Dark mode',
-  system: 'System preference',
-};
-
 export function Header() {
   const location = useLocation();
-  const { theme, toggleTheme } = useTheme();
-
-  const ThemeIcon = themeIcons[theme];
-  const currentThemeLabel = themeLabels[theme];
+  const { isDark, toggleTheme } = useTheme();
 
   return (
     <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
@@ -61,15 +46,28 @@ export function Header() {
               );
             })}
 
-            <div className="flex items-center space-x-2 ml-2">
+            <div className="flex items-center space-x-3 ml-2">
               <ConnectionStatus />
-              <button
-                onClick={toggleTheme}
-                className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                title={`Theme: ${currentThemeLabel} (click to cycle)`}
-              >
-                <ThemeIcon className="h-4 w-4" />
-              </button>
+
+              {/* Theme Toggle Switch */}
+              <div className="flex items-center space-x-2">
+                <Sun className="h-4 w-4 text-amber-500" />
+                <button
+                  onClick={toggleTheme}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+                    isDark ? 'bg-purple-600' : 'bg-gray-300'
+                  }`}
+                  title={isDark ? 'Dark mode (click to switch to light)' : 'Light mode (click to switch to dark)'}
+                >
+                  <span className="sr-only">Toggle theme</span>
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isDark ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <Moon className="h-4 w-4 text-purple-400" />
+              </div>
             </div>
           </nav>
         </div>

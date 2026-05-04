@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTheme } from '../hooks/useTheme';
 import { Sun, Moon, Monitor, Save, Check } from 'lucide-react';
 import { useToast } from '../components/ui';
@@ -7,6 +7,18 @@ export function Settings() {
   const { theme, setTheme } = useTheme();
   const toast = useToast();
   const [isSaving, setIsSaving] = useState(false);
+  const [localTheme, setLocalTheme] = useState<'light' | 'dark' | 'system'>(theme);
+
+  // Sync local state with theme hook
+  useEffect(() => {
+    setLocalTheme(theme);
+  }, [theme]);
+
+  const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
+    setLocalTheme(newTheme);
+    setTheme(newTheme);
+  };
+
   const [snmpConfig, setSnmpConfig] = useState({
     community: 'public',
     timeout: 5,
@@ -61,15 +73,15 @@ export function Settings() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Theme
+                Theme Mode
               </label>
               <div className="grid grid-cols-3 gap-3">
                 {(['light', 'dark', 'system'] as const).map((t) => (
                   <button
                     key={t}
-                    onClick={() => setTheme(t)}
+                    onClick={() => handleThemeChange(t)}
                     className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg border transition-all ${
-                      theme === t
+                      localTheme === t
                         ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
                         : 'border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
@@ -82,9 +94,22 @@ export function Settings() {
                 ))}
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                Current: <span className="font-medium capitalize">{theme}</span>
-                {theme === 'system' && ' (follows system preference)'}
+                Current: <span className="font-medium capitalize">{localTheme}</span>
+                {localTheme === 'system' && ' (follows system preference)'}
               </p>
+            </div>
+
+            {/* Quick Toggle */}
+            <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center space-x-2">
+                <Sun className="h-5 w-5 text-amber-500" />
+                <Moon className="h-5 w-5 text-purple-400" />
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {localTheme === 'dark' ? 'Dark' : localTheme === 'light' ? 'Light' : 'System'} mode active
+                </span>
+              </div>
             </div>
           </div>
         </div>
