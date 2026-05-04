@@ -178,11 +178,32 @@ docker/
 | Phase 3 | ✅ Complete | Service checks (HTTP, TCP, DNS, Ping, SSL) |
 | Phase 4 | ✅ Complete | React frontend dashboard |
 | Phase 5 | ⏳ Pending | Docker deployment |
+| Phase 5 | ✅ Complete | Docker deployment with production-ready compose |
 | Phase 6 | ⏳ Pending | Advanced features (distributed agents, analytics) |
+
+## Docker Deployment
+
+```bash
+# Production deployment
+cd docker
+docker compose up -d --build
+
+# Access the application
+# Frontend: http://localhost:80
+# Backend API: http://localhost:8000/docs
+
+# View logs
+docker compose logs -f
+
+# Stop deployment
+docker compose down
+```
+
+See [docker/DEPLOYMENT.md](docker/DEPLOYMENT.md) for detailed deployment guide.
 
 ## Project Stats
 
-- **Version:** 0.5.0
-- **Lines of Code:** ~6,500
+- **Version:** 0.6.0
+- **Lines of Code:** ~7,500
 - **Test Coverage:** 19 unit tests (notification channels)
 - **Python Version:** 3.11+

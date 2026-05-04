@@ -2,44 +2,38 @@ import { useState, useEffect, useCallback } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
 
-function applyThemeToDom(newTheme: Theme) {
+function getEffectiveTheme(theme: Theme): 'light' | 'dark' {
+  if (theme === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return theme;
+}
+
+function applyThemeToDom(theme: Theme) {
   const root = window.document.documentElement;
-  const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const effective = getEffectiveTheme(theme);
 
   root.classList.remove('light', 'dark');
-
-  const effectiveTheme = newTheme === 'system'
-    ? (systemPrefersDark ? 'dark' : 'light')
-    : newTheme;
-
-  root.classList.add(effectiveTheme);
-  root.setAttribute('data-theme', effectiveTheme);
-  localStorage.setItem('theme', newTheme);
-  return effectiveTheme;
+  root.classList.add(effective);
+  root.setAttribute('data-theme', effective);
+  localStorage.setItem('theme', theme);
 }
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem('theme') as Theme) || 'system';
-    }
-    return 'system';
-  });
+  const [theme, setTheme] = useState<Theme>('system');
 
-  const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('theme') as Theme | null;
-      const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const t = stored || 'system';
-      return t === 'system' ? (systemPrefersDark ? 'dark' : 'light') : (t as 'light' | 'dark');
+  // Initialize from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('theme') as Theme | null;
+    if (stored) {
+      setTheme(stored);
+      applyThemeToDom(stored);
     }
-    return 'light';
-  });
+  }, []);
 
   // Apply theme whenever theme state changes
   useEffect(() => {
-    const effective = applyThemeToDom(theme);
-    setEffectiveTheme(effective);
+    applyThemeToDom(theme);
   }, [theme]);
 
   // Listen for system theme changes when in 'system' mode
@@ -47,10 +41,7 @@ export function useTheme() {
     if (theme !== 'system') return;
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = () => {
-      const effective = applyThemeToDom('system');
-      setEffectiveTheme(effective);
-    };
+    const handleChange = () => applyThemeToDom('system');
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [theme]);
@@ -63,5 +54,5 @@ export function useTheme() {
     });
   }, []);
 
-  return { theme, setTheme, toggleTheme, effectiveTheme };
+  return { theme, setTheme, toggleTheme };
 }

@@ -135,9 +135,12 @@ class DiscoveryRequest(BaseModel):
 app = FastAPI(
     title="NetOps API",
     description="Network topology discovery and monitoring",
-    version="0.2.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
+
+# Include routes with /api prefix
+api_router = FastAPI(title="NetOps API")
 
 
 # Request/Response models
@@ -293,7 +296,7 @@ async def simulate_topology():
         })
 
     # Retry with backoff to handle poller DB contention
-    max_retries = 5
+    max_retries = 10
     for attempt in range(max_retries):
         try:
             changes = await db_client.upsert_topology(nodes, links)
@@ -305,7 +308,8 @@ async def simulate_topology():
             }
         except Exception as e:
             if attempt < max_retries - 1:
-                await asyncio.sleep(1.0 * (attempt + 1))
+                # Wait longer between retries (2s, 4s, 6s...)
+                await asyncio.sleep(2.0 * (attempt + 1))
             else:
                 raise HTTPException(status_code=503, detail=f"Database busy: {str(e)}")
 

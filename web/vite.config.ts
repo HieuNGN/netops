@@ -7,10 +7,14 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
+      // Proxy API requests to backend (backend doesn't use /api prefix)
+      '/health': { target: 'http://localhost:8000', changeOrigin: true },
+      '/topology': { target: 'http://localhost:8000', changeOrigin: true },
+      '/devices': { target: 'http://localhost:8000', changeOrigin: true },
+      '/checks': { target: 'http://localhost:8000', changeOrigin: true },
+      '/alerts': { target: 'http://localhost:8000', changeOrigin: true },
+      '/stats': { target: 'http://localhost:8000', changeOrigin: true },
+      '/discover': { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
 })

@@ -134,25 +134,31 @@ export function Topology() {
           <ForceGraph2D
             ref={graphRef}
             graphData={graphData}
-            nodeColor={(node: any) =>
-              node.status === 'online'
-                ? '#22c55e'
-                : node.status === 'offline'
-                ? '#ef4444'
-                : '#6b7280'
-            }
-            nodeRelSize={8}
-            linkColor={() => '#3b82f6'}
-            linkWidth={2}
-            nodeLabel={(node: any) => `${node.label}\nStatus: ${node.status}`}
+            nodeColor={(node: any) => {
+              // Color by node type first, then adjust by status
+              const baseColor = node.node_type === 'router' ? '#8b5cf6'
+                : node.node_type === 'firewall' ? '#ef4444'
+                : node.node_type === 'switch' ? '#3b82f6'
+                : '#6b7280';
+              // Dim for offline status
+              return node.status === 'offline' ? '#4b5563' : baseColor;
+            }}
+            nodeRelSize={10}
+            linkColor={() => '#22d3ee'}
+            linkWidth={2.5}
+            linkDirectionalArrowLength={4}
+            linkDirectionalArrowRelLen={0.8}
+            nodeLabel={(node: any) => `${node.label}\n${node.node_type} • ${node.status}`}
             linkLabel={(link: any) =>
               `${link.source_port || ''} → ${link.target_port || ''}`
             }
             onNodeClick={handleNodeClick}
             onLinkClick={handleLinkClick}
             backgroundColor="transparent"
-            cooldownTime={1000}
-            d3AlphaDecay={0.02}
+            cooldownTime={1500}
+            d3AlphaDecay={0.015}
+            d3VelocityDecay={0.3}
+            warmupTicks={100}
           />
         </div>
 
