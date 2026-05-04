@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -27,6 +27,12 @@ export function useTheme() {
     const stored = localStorage.getItem('theme') as Theme | null;
     return stored || 'system';
   });
+
+  const themeRef = useRef<Theme>(theme);
+  themeRef.current = theme;
+
+  // Compute isDark once using ref to avoid stale closures
+  const isDark = getEffectiveTheme(themeRef.current) === 'dark';
 
   // Apply theme whenever theme state changes
   useEffect(() => {
@@ -64,14 +70,15 @@ export function useTheme() {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      // Toggle between light and dark only (don't cycle to system)
-      const newTheme = prev === 'light' ? 'dark' : 'light';
-      return newTheme;
-    });
+    // Get current theme from ref (not state, to avoid stale closure)
+    const currentTheme = themeRef.current;
+    // Toggle between light and dark only (don't cycle to system)
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    // Apply immediately for instant effect
+    applyThemeToDom(newTheme);
+    // Update state
+    setThemeState(newTheme);
   }, []);
-
-  const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   return { theme, setTheme, toggleTheme, isDark };
 }
