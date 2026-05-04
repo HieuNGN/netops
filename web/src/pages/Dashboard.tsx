@@ -1,4 +1,4 @@
-import { Activity, Server, Network, CheckCircle, AlertCircle, TrendUp, TrendDown } from 'lucide-react';
+import { Activity, Server, Network, CheckCircle, AlertCircle, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTopology } from '../hooks/useTopology';
 import { useDevices } from '../hooks/useDevices';
@@ -15,7 +15,7 @@ function StatCard({ title, value, subtext, icon: Icon, color, trend }: any) {
           {subtext && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{subtext}</p>}
           {trend && (
             <div className={`flex items-center mt-2 text-sm ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {trend > 0 ? <TrendUp className="h-4 w-4 mr-1" /> : <TrendDown className="h-4 w-4 mr-1" />}
+              {trend > 0 ? <ArrowUpCircle className="h-4 w-4 mr-1" /> : <ArrowDownCircle className="h-4 w-4 mr-1" />}
               <span>{Math.abs(trend)}% from last hour</span>
             </div>
           )}
