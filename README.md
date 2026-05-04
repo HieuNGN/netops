@@ -179,7 +179,7 @@ docker/
 | Phase 4 | ✅ Complete | React frontend dashboard |
 | Phase 5 | ⏳ Pending | Docker deployment |
 | Phase 5 | ✅ Complete | Docker deployment with production-ready compose |
-| Phase 6 | ⏳ Pending | Advanced features (distributed agents, analytics) |
+| Phase 6 | 🚧 In Progress | Advanced features (topology history ✅, distributed agents, analytics) |
 
 ## Docker Deployment
 
@@ -203,7 +203,17 @@ See [docker/DEPLOYMENT.md](docker/DEPLOYMENT.md) for detailed deployment guide.
 
 ## Project Stats
 
-- **Version:** 0.6.0
-- **Lines of Code:** ~7,500
+- **Version:** 0.7.0
+- **Lines of Code:** ~8,000
 - **Test Coverage:** 19 unit tests (notification channels)
 - **Python Version:** 3.11+
+
+## Recent Changes (v0.7.0)
+
+- **Phase 6 Started**: Topology change history tracking
+  - Audit trail of all topology changes (nodes/links added/removed)
+  - `GET /topology/history` endpoint for trend analysis
+  - Automatic history recording on every topology change
+- **Error Handling**: Added React error boundary and 404 page
+- **Settings Page**: Fixed save buttons with localStorage persistence
+- **Docker Deployment**: Production-ready containerization
