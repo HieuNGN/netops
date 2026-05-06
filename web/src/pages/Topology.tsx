@@ -94,7 +94,7 @@ export function Topology() {
               )}
             </p>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               onClick={() => graphRef.current?.zoom(1.5)}
               className="p-2 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"

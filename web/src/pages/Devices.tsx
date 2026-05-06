@@ -78,7 +78,7 @@ export function Devices() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[#161616] dark:text-white">Devices</h1>
           <p className="text-[#525252] dark:text-[#a8a8a8] mt-1">Manage network devices for monitoring</p>
@@ -257,7 +257,7 @@ export function Devices() {
       )}
 
       {/* Devices Table */}
-      <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] overflow-hidden">
+      <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] overflow-hidden overflow-x-auto">
         <table className="min-w-full divide-y divide-[#e0e0e0] dark:divide-[#393939]">
           <thead className="bg-[#f4f4f4] dark:bg-[#161616]">
             <tr>

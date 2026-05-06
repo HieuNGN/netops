@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Network, Activity, Server, AlertTriangle, Settings, Sun, Moon } from 'lucide-react';
+import { Network, Activity, Server, AlertTriangle, Settings } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import { ConnectionStatus } from './ConnectionStatus';
 
@@ -27,7 +27,7 @@ export function Header() {
             </Link>
           </div>
 
-          <nav className="flex items-center space-x-1">
+          <nav className="flex items-center space-x-1 overflow-x-auto">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
@@ -83,12 +83,6 @@ export function Header() {
                     ${isDark ? 'bg-white/20' : 'bg-white/60'}
                   `} />
                 </span>
-                {/* Mode indicator dot */}
-                <span className={`
-                  absolute -bottom-1 left-1/2 -translate-x-1/2
-                  w-1 h-1 rounded-full transition-colors duration-200
-                  ${isDark ? 'bg-[#da1e28]' : 'bg-[#525252]'}
-                `} />
               </button>
             </div>
           </nav>
