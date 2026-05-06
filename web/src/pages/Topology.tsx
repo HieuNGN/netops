@@ -147,7 +147,6 @@ export function Topology() {
             linkColor={() => '#a8a8a8'}
             linkWidth={2.5}
             linkDirectionalArrowLength={4}
-            linkDirectionalArrowRelLen={0.8}
             nodeLabel={(node: any) => `${node.label}\n${node.node_type} • ${node.status}`}
             linkLabel={(link: any) =>
               `${link.source_port || ''} → ${link.target_port || ''}`

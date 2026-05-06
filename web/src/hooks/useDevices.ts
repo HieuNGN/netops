@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { devicesApi } from '../api';
-import type { Device, DiscoveryResult } from '../api';
+import type { Device } from '../api';
 
 export function useDevices() {
   const queryClient = useQueryClient();

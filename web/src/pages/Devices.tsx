@@ -59,7 +59,7 @@ export function Devices() {
       });
       toast.success(
         'Network scan complete',
-        `Found ${result.found} devices, added ${result.added} new`
+        `Found ${result.data.found} devices, added ${result.data.added} new`
       );
       setShowScanModal(false);
     } catch (error) {

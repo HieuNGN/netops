@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTopology } from '../hooks/useTopology';
 import { useDevices } from '../hooks/useDevices';
 import { useChecks } from '../hooks/useChecks';
-import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
 function StatCard({ title, value, subtext, icon: Icon, color, trend }: any) {
   return (
@@ -37,8 +37,6 @@ const generatePollData = () => {
     failed: Math.floor(Math.random() * 20),
   }));
 };
-
-const COLORS = ['#24a148', '#da1e28', '#525252'];
 
 export function Dashboard() {
   const { topology } = useTopology();
