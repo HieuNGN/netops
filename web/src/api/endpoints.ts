@@ -91,7 +91,7 @@ export const devicesApi = {
     apiClient.put<Device>(`/devices/${id}`, data),
   delete: (id: string) => apiClient.delete(`/devices/${id}`),
   discover: (data: { network_range: string; community?: string; method?: string }) =>
-    apiClient.post<DiscoveryResult>('/discover', data),
+    apiClient.post<DiscoveryResult>('/discover', data, { timeout: 60000 }),
 };
 
 // Topology API

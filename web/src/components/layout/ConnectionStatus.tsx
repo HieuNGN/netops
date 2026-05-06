@@ -44,15 +44,15 @@ export function ConnectionStatus() {
 
   return (
     <div
-      className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+      className={`flex items-center space-x-2 px-3 py-1.5 rounded-sm text-xs font-medium transition-colors ${
         isOnline
-          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+          ? 'bg-[#defbe6] text-[#24a148] dark:bg-[#142811] dark:text-[#42be65]'
+          : 'bg-[#fff0f1] text-[#da1e28] dark:bg-[#520408] dark:text-[#ff8389]'
       }`}
       title={isOnline ? `Backend connected${lastCheck ? ` • Last check: ${lastCheck.toLocaleTimeString()}` : ''}` : 'Backend disconnected - retrying...'}
     >
       {isChecking ? (
-        <div className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent" />
+        <div className="animate-spin rounded-sm h-3 w-3 border-2 border-current border-t-transparent" />
       ) : isOnline ? (
         <Wifi className="h-3.5 w-3.5" />
       ) : (

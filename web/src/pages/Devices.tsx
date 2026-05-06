@@ -69,31 +69,31 @@ export function Devices() {
 
   const statusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      online: 'bg-green-100 text-green-700',
-      offline: 'bg-red-100 text-red-700',
-      discovered: 'bg-blue-100 text-blue-700',
+      online: 'bg-[#defbe6] text-[#24a148]',
+      offline: 'bg-[#fff0f1] text-[#da1e28]',
+      discovered: 'bg-[#e0e0e0] text-[#0f62fe]',
     };
-    return styles[status] || 'bg-gray-100 text-gray-700';
+    return styles[status] || 'bg-[#e0e0e0] text-[#161616]';
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Devices</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">Manage network devices for monitoring</p>
+          <h1 className="text-2xl font-bold text-[#161616] dark:text-white">Devices</h1>
+          <p className="text-[#525252] dark:text-[#a8a8a8] mt-1">Manage network devices for monitoring</p>
         </div>
         <div className="flex space-x-2">
           <button
             onClick={() => setShowScanModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="flex items-center space-x-2 px-4 py-2 bg-[#0f62fe] text-white rounded-sm hover:bg-[#0353e9]"
           >
             <ScanLine className="h-4 w-4" />
             <span>Scan Network</span>
           </button>
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            className="flex items-center space-x-2 px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252]"
           >
             <Plus className="h-4 w-4" />
             <span>Add Device</span>
@@ -104,57 +104,57 @@ export function Devices() {
       {/* Search */}
       <div className="mb-6">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-[#a8a8a8]" />
           <input
             type="text"
             placeholder="Search by name or IP..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28] focus:border-transparent"
           />
         </div>
       </div>
 
       {/* Add Device Form */}
       {showAddForm && (
-        <div className="mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add New Device</h2>
+        <div className="mb-6 bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
+          <h2 className="text-lg font-semibold text-[#161616] dark:text-white mb-4">Add New Device</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   Name (optional)
                 </label>
                 <input
                   type="text"
                   value={newDevice.name}
                   onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                   placeholder="Router-1"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   IP Address *
                 </label>
                 <input
                   type="text"
                   value={newDevice.ip_address}
                   onChange={(e) => setNewDevice({ ...newDevice, ip_address: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                   placeholder="192.168.1.1"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   SNMP Community
                 </label>
                 <input
                   type="text"
                   value={newDevice.community}
                   onChange={(e) => setNewDevice({ ...newDevice, community: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                   placeholder="public"
                 />
               </div>
@@ -163,13 +163,13 @@ export function Devices() {
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                className="px-4 py-2 text-[#161616] dark:text-[#a8a8a8] bg-[#e0e0e0] dark:bg-[#262626] rounded-sm hover:bg-[#e0e0e0] dark:hover:bg-[#393939]"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                className="px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252]"
               >
                 Add Device
               </button>
@@ -181,41 +181,41 @@ export function Devices() {
       {/* Scan Network Modal */}
       {showScanModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6 w-full max-w-md mx-4">
+          <div className="bg-white dark:bg-[#262626] rounded-sm shadow-lg border border-[#e0e0e0] dark:border-[#393939] p-6 w-full max-w-md mx-4">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Network</h2>
+              <h2 className="text-lg font-semibold text-[#161616] dark:text-white">Scan Network</h2>
               <button
                 onClick={() => setShowScanModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="text-[#a8a8a8] hover:text-[#525252] dark:hover:text-[#c6c6c6]"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
             <form onSubmit={handleDiscover} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   Network Range
                 </label>
                 <input
                   type="text"
                   value={scanConfig.network_range}
                   onChange={(e) => setScanConfig({ ...scanConfig, network_range: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                   placeholder="192.168.1.0/24"
                   required
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-xs text-[#525252] dark:text-[#a8a8a8] mt-1">
                   CIDR notation, e.g. 192.168.1.0/24
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   Discovery Method
                 </label>
                 <select
                   value={scanConfig.method}
                   onChange={(e) => setScanConfig({ ...scanConfig, method: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                 >
                   <option value="all">All Methods (SNMP + Ping + Ports)</option>
                   <option value="snmp">SNMP Only</option>
@@ -224,14 +224,14 @@ export function Devices() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   SNMP Community
                 </label>
                 <input
                   type="text"
                   value={scanConfig.community}
                   onChange={(e) => setScanConfig({ ...scanConfig, community: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                   placeholder="public"
                 />
               </div>
@@ -239,14 +239,14 @@ export function Devices() {
                 <button
                   type="button"
                   onClick={() => setShowScanModal(false)}
-                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                  className="px-4 py-2 text-[#161616] dark:text-[#a8a8a8] bg-[#e0e0e0] dark:bg-[#262626] rounded-sm hover:bg-[#e0e0e0] dark:hover:bg-[#393939]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isDiscovering}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-[#0f62fe] text-white rounded-sm hover:bg-[#0353e9] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isDiscovering ? 'Scanning...' : 'Start Scan'}
                 </button>
@@ -257,43 +257,43 @@ export function Devices() {
       )}
 
       {/* Devices Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-900">
+      <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] overflow-hidden">
+        <table className="min-w-full divide-y divide-[#e0e0e0] dark:divide-[#393939]">
+          <thead className="bg-[#f4f4f4] dark:bg-[#161616]">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-[#525252] dark:text-[#a8a8a8] uppercase tracking-wider">
                 Name
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-[#525252] dark:text-[#a8a8a8] uppercase tracking-wider">
                 IP Address
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-[#525252] dark:text-[#a8a8a8] uppercase tracking-wider">
                 Community
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-[#525252] dark:text-[#a8a8a8] uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-[#525252] dark:text-[#a8a8a8] uppercase tracking-wider">
                 Method
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-[#525252] dark:text-[#a8a8a8] uppercase tracking-wider">
                 Last Polled
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="px-6 py-3 text-right text-xs font-medium text-[#525252] dark:text-[#a8a8a8] uppercase tracking-wider">
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+          <tbody className="bg-white dark:bg-[#262626] divide-y divide-[#e0e0e0] dark:divide-[#393939]">
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                <td colSpan={7} className="px-6 py-8 text-center text-[#525252] dark:text-[#a8a8a8]">
                   Loading devices...
                 </td>
               </tr>
             ) : filteredDevices.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                <td colSpan={7} className="px-6 py-8 text-center text-[#525252] dark:text-[#a8a8a8]">
                   {devices.length === 0
                     ? 'No devices configured. Add your first device or scan the network.'
                     : 'No devices match your search.'}
@@ -301,42 +301,42 @@ export function Devices() {
               </tr>
             ) : (
               filteredDevices.map((device) => (
-                <tr key={device.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                <tr key={device.id} className="hover:bg-[#f4f4f4] dark:hover:bg-[#393939]">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white">
+                    <div className="text-sm font-medium text-[#161616] dark:text-white">
                       {device.name || '-'}
                     </div>
                     {device.sys_descr && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs" title={device.sys_descr}>
+                      <div className="text-xs text-[#525252] dark:text-[#a8a8a8] truncate max-w-xs" title={device.sys_descr}>
                         {device.sys_descr}
                       </div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 dark:text-white font-mono">{device.ip_address}</div>
+                    <div className="text-sm text-[#161616] dark:text-white font-mono">{device.ip_address}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 dark:text-white">{device.community}</div>
+                    <div className="text-sm text-[#161616] dark:text-white">{device.community}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
-                      className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${statusBadge(device.status)}`}
+                      className={`inline-flex px-2 py-1 rounded-sm text-xs font-medium ${statusBadge(device.status)}`}
                     >
                       {device.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                    <span className="inline-flex px-2 py-1 rounded-sm text-xs font-medium bg-[#e0e0e0] text-[#161616] dark:bg-[#262626] dark:text-[#a8a8a8]">
                       {device.discovery_method || 'manual'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[#525252] dark:text-[#a8a8a8]">
                     {device.last_polled || 'Never'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
                       onClick={() => handleDelete(device.id)}
-                      className="text-red-600 hover:text-red-900 dark:hover:text-red-400 ml-4"
+                      className="text-[#da1e28] hover:text-red-900 dark:hover:text-red-400 ml-4"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

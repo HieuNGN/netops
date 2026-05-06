@@ -62,17 +62,17 @@ export function Settings() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">Application configuration</p>
+        <h1 className="text-2xl font-bold text-[#161616] dark:text-white">Settings</h1>
+        <p className="text-[#525252] dark:text-[#a8a8a8] mt-1">Application configuration</p>
       </div>
 
       <div className="space-y-6">
         {/* Theme Settings */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Appearance</h2>
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
+          <h2 className="text-lg font-semibold text-[#161616] dark:text-white mb-4">Appearance</h2>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Theme Mode
               </label>
               <div className="grid grid-cols-3 gap-3">
@@ -80,10 +80,10 @@ export function Settings() {
                   <button
                     key={t}
                     onClick={() => handleThemeChange(t)}
-                    className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg border transition-all ${
+                    className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-sm border transition-all ${
                       localTheme === t
-                        ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
-                        : 'border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        ? 'border-[#da1e28] bg-[#f4f4f4] dark:bg-[#262626] text-[#161616] dark:text-[#f4f4f4]'
+                        : 'border-[#e0e0e0] dark:border-[#525252] text-[#161616] dark:text-[#a8a8a8] hover:bg-[#f4f4f4] dark:hover:bg-[#393939]'
                     }`}
                   >
                     {t === 'light' && <Sun className="h-4 w-4" />}
@@ -93,20 +93,20 @@ export function Settings() {
                   </button>
                 ))}
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+              <p className="text-sm text-[#525252] dark:text-[#a8a8a8] mt-2">
                 Current: <span className="font-medium capitalize">{localTheme}</span>
                 {localTheme === 'system' && ' (follows system preference)'}
               </p>
             </div>
 
             {/* Quick Toggle */}
-            <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between pt-4 border-t border-[#e0e0e0] dark:border-[#393939]">
               <div className="flex items-center space-x-2">
                 <Sun className="h-5 w-5 text-amber-500" />
-                <Moon className="h-5 w-5 text-purple-400" />
+                <Moon className="h-5 w-5 text-[#a8a8a8]" />
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">
+                <span className="text-sm text-[#525252] dark:text-[#a8a8a8]">
                   {localTheme === 'dark' ? 'Dark' : localTheme === 'light' ? 'Light' : 'System'} mode active
                 </span>
               </div>
@@ -115,13 +115,13 @@ export function Settings() {
         </div>
 
         {/* SNMP Settings */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">SNMP Configuration</h2>
+            <h2 className="text-lg font-semibold text-[#161616] dark:text-white">SNMP Configuration</h2>
             <button
               onClick={handleSaveSnmp}
               disabled={isSaving}
-              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              className="flex items-center space-x-2 px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252] disabled:opacity-50"
             >
               {isSaving ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
               <span>{isSaving ? 'Saving...' : 'Save'}</span>
@@ -129,19 +129,19 @@ export function Settings() {
           </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Default Community
               </label>
               <input
                 type="text"
                 value={snmpConfig.community}
                 onChange={(e) => setSnmpConfig({ ...snmpConfig, community: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   Timeout (seconds)
                 </label>
                 <input
@@ -150,11 +150,11 @@ export function Settings() {
                   onChange={(e) => setSnmpConfig({ ...snmpConfig, timeout: parseInt(e.target.value) || 5 })}
                   min="1"
                   max="30"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   Retries
                 </label>
                 <input
@@ -163,7 +163,7 @@ export function Settings() {
                   onChange={(e) => setSnmpConfig({ ...snmpConfig, retries: parseInt(e.target.value) || 3 })}
                   min="0"
                   max="10"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
                 />
               </div>
             </div>
@@ -171,13 +171,13 @@ export function Settings() {
         </div>
 
         {/* Polling Settings */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Polling Settings</h2>
+            <h2 className="text-lg font-semibold text-[#161616] dark:text-white">Polling Settings</h2>
             <button
               onClick={handleSavePolling}
               disabled={isSaving}
-              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              className="flex items-center space-x-2 px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252] disabled:opacity-50"
             >
               {isSaving ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
               <span>{isSaving ? 'Saving...' : 'Save'}</span>
@@ -185,7 +185,7 @@ export function Settings() {
           </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Topology Polling Interval (seconds)
               </label>
               <input
@@ -194,11 +194,11 @@ export function Settings() {
                 onChange={(e) => setPollingConfig({ ...pollingConfig, topology_interval: parseInt(e.target.value) || 30 })}
                 min="5"
                 max="300"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Service Check Default Interval (seconds)
               </label>
               <input
@@ -207,19 +207,19 @@ export function Settings() {
                 onChange={(e) => setPollingConfig({ ...pollingConfig, check_interval: parseInt(e.target.value) || 60 })}
                 min="10"
                 max="3600"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
               />
             </div>
           </div>
         </div>
 
         {/* Connection Settings */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">API Connection</h2>
+            <h2 className="text-lg font-semibold text-[#161616] dark:text-white">API Connection</h2>
             <button
               onClick={handleSaveApiUrl}
-              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+              className="flex items-center space-x-2 px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252]"
             >
               <Save className="h-4 w-4" />
               <span>Save</span>
@@ -227,16 +227,16 @@ export function Settings() {
           </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Backend API URL
               </label>
               <input
                 type="text"
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
               />
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-sm text-[#525252] dark:text-[#a8a8a8] mt-1">
                 Changes require a page reload to take effect
               </p>
             </div>

@@ -59,33 +59,33 @@ export function Topology() {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="text-gray-600 dark:text-gray-400 mt-4">Loading topology...</p>
+          <div className="animate-spin rounded-sm h-12 w-12 border-b-2 border-[#da1e28] mx-auto"></div>
+          <p className="text-[#525252] dark:text-[#a8a8a8] mt-4">Loading topology...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+    <div className="h-screen flex flex-col bg-[#f4f4f4] dark:bg-[#161616]">
+      <div className="bg-white dark:bg-[#262626] border-b border-[#e0e0e0] dark:border-[#393939] px-6 py-4">
         <div className="flex justify-between items-center">
           <div>
             <div className="flex items-center space-x-3">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Network Topology</h1>
+              <h1 className="text-2xl font-bold text-[#161616] dark:text-white">Network Topology</h1>
               <div
-                className={`flex items-center space-x-1.5 px-2 py-1 rounded-full text-xs font-medium ${
+                className={`flex items-center space-x-1.5 px-2 py-1 rounded-sm text-xs font-medium ${
                   isStreaming
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                    ? 'bg-[#defbe6] text-[#24a148] dark:bg-[#142811] dark:text-[#42be65]'
+                    : 'bg-[#fcf4d6] text-[#b28600] dark:bg-[#3c2e05] dark:text-[#f1c21b]'
                 }`}
                 title={isStreaming ? 'Receiving real-time updates' : 'Stream disconnected - attempting reconnect'}
               >
-                <div className={`h-2 w-2 rounded-full ${isStreaming ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+                <div className={`h-2 w-2 rounded-sm ${isStreaming ? 'bg-[#24a148] animate-pulse' : 'bg-[#f1c21b]'}`} />
                 <span className="hidden sm:inline">{isStreaming ? 'Live' : 'Connecting...'}</span>
               </div>
             </div>
-            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
+            <p className="text-[#525252] dark:text-[#a8a8a8] text-sm mt-1">
               {graphData.nodes.length} nodes • {graphData.links.length} links
               {lastUpdate && (
                 <span className="ml-2">
@@ -97,14 +97,14 @@ export function Topology() {
           <div className="flex items-center space-x-2">
             <button
               onClick={() => graphRef.current?.zoom(1.5)}
-              className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              className="p-2 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
               title="Zoom In"
             >
               <ZoomIn className="h-5 w-5" />
             </button>
             <button
               onClick={() => graphRef.current?.zoom(0.5)}
-              className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              className="p-2 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
               title="Zoom Out"
             >
               <ZoomOut className="h-5 w-5" />
@@ -112,7 +112,7 @@ export function Topology() {
             <button
               onClick={handleSimulate}
               disabled={isSimulating}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Generate simulated network topology for demo"
             >
               <Network className="h-4 w-4" />
@@ -120,7 +120,7 @@ export function Topology() {
             </button>
             <button
               onClick={refresh}
-              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+              className="flex items-center space-x-2 px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252]"
             >
               <RefreshCw className="h-4 w-4" />
               <span>Refresh</span>
@@ -136,15 +136,15 @@ export function Topology() {
             graphData={graphData}
             nodeColor={(node: any) => {
               // Color by node type first, then adjust by status
-              const baseColor = node.node_type === 'router' ? '#8b5cf6'
-                : node.node_type === 'firewall' ? '#ef4444'
-                : node.node_type === 'switch' ? '#3b82f6'
-                : '#6b7280';
+              const baseColor = node.node_type === 'router' ? '#da1e28'
+                : node.node_type === 'firewall' ? '#f1c21b'
+                : node.node_type === 'switch' ? '#0f62fe'
+                : '#525252';
               // Dim for offline status
-              return node.status === 'offline' ? '#4b5563' : baseColor;
+              return node.status === 'offline' ? '#393939' : baseColor;
             }}
             nodeRelSize={10}
-            linkColor={() => '#22d3ee'}
+            linkColor={() => '#a8a8a8'}
             linkWidth={2.5}
             linkDirectionalArrowLength={4}
             linkDirectionalArrowRelLen={0.8}
@@ -163,14 +163,14 @@ export function Topology() {
         </div>
 
         {selectedNode && (
-          <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 p-6 overflow-y-auto">
+          <div className="w-80 bg-white dark:bg-[#262626] border-l border-[#e0e0e0] dark:border-[#393939] p-6 overflow-y-auto">
             <div className="flex justify-between items-start mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-lg font-semibold text-[#161616] dark:text-white">
                 {selectedNode.type === 'link' ? 'Link Details' : selectedNode.label}
               </h2>
               <button
                 onClick={() => setSelectedNode(null)}
-                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                className="text-[#a8a8a8] dark:text-[#525252] hover:text-[#525252] dark:hover:text-[#c6c6c6]"
               >
                 ×
               </button>
@@ -180,26 +180,26 @@ export function Topology() {
               {selectedNode.type === 'link' ? (
                 <>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Source</p>
-                    <p className="font-medium text-gray-900 dark:text-white">{selectedNode.source}</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Source</p>
+                    <p className="font-medium text-[#161616] dark:text-white">{selectedNode.source}</p>
                     {selectedNode.source_port && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Port: {selectedNode.source_port}</p>
+                      <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Port: {selectedNode.source_port}</p>
                     )}
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Target</p>
-                    <p className="font-medium text-gray-900 dark:text-white">{selectedNode.target}</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Target</p>
+                    <p className="font-medium text-[#161616] dark:text-white">{selectedNode.target}</p>
                     {selectedNode.target_port && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Port: {selectedNode.target_port}</p>
+                      <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Port: {selectedNode.target_port}</p>
                     )}
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Status</p>
                     <span
-                      className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                      className={`inline-block px-2 py-1 rounded-sm text-xs font-medium ${
                         selectedNode.status === 'active'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-700'
+                          ? 'bg-[#defbe6] text-[#24a148]'
+                          : 'bg-[#e0e0e0] text-[#161616]'
                       }`}
                     >
                       {selectedNode.status}
@@ -209,26 +209,26 @@ export function Topology() {
               ) : (
                 <>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Node ID</p>
-                    <p className="font-mono text-sm text-gray-900 dark:text-white">{selectedNode.id}</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Node ID</p>
+                    <p className="font-mono text-sm text-[#161616] dark:text-white">{selectedNode.id}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Label</p>
-                    <p className="font-medium text-gray-900 dark:text-white">{selectedNode.label}</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Label</p>
+                    <p className="font-medium text-[#161616] dark:text-white">{selectedNode.label}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Type</p>
-                    <p className="text-gray-900 dark:text-white capitalize">{selectedNode.node_type}</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Type</p>
+                    <p className="text-[#161616] dark:text-white capitalize">{selectedNode.node_type}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Status</p>
                     <span
-                      className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                      className={`inline-block px-2 py-1 rounded-sm text-xs font-medium ${
                         selectedNode.status === 'online'
-                          ? 'bg-green-100 text-green-700'
+                          ? 'bg-[#defbe6] text-[#24a148]'
                           : selectedNode.status === 'offline'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-gray-100 text-gray-700'
+                          ? 'bg-[#fff0f1] text-[#da1e28]'
+                          : 'bg-[#e0e0e0] text-[#161616]'
                       }`}
                     >
                       {selectedNode.status}
@@ -236,8 +236,8 @@ export function Topology() {
                   </div>
                   {selectedNode.device_id && (
                     <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Device ID</p>
-                      <p className="font-mono text-sm text-gray-900 dark:text-white">{selectedNode.device_id}</p>
+                      <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">Device ID</p>
+                      <p className="font-mono text-sm text-[#161616] dark:text-white">{selectedNode.device_id}</p>
                     </div>
                   )}
                 </>

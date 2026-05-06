@@ -17,13 +17,13 @@ export function Header() {
   const { isDark, toggleTheme } = useTheme();
 
   return (
-    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+    <header className="bg-white dark:bg-[#161616] border-b border-[#e0e0e0] dark:border-[#393939]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <Link to="/" className="flex items-center space-x-2">
-              <Network className="h-8 w-8 text-purple-600" />
-              <span className="text-xl font-bold text-gray-900 dark:text-white">NetOps</span>
+              <Network className="h-8 w-8 text-[#da1e28]" />
+              <span className="text-xl font-bold text-[#161616] dark:text-white">NetOps</span>
             </Link>
           </div>
 
@@ -34,10 +34,10 @@ export function Header() {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center space-x-2 px-3 py-2 rounded-sm text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      ? 'bg-[#161616] text-white dark:bg-[#f4f4f4] dark:text-[#161616]'
+                      : 'text-[#525252] dark:text-[#a8a8a8] hover:bg-[#f4f4f4] dark:hover:bg-[#262626]'
                   }`}
                 >
                   <item.icon className="h-4 w-4" />
@@ -51,22 +51,22 @@ export function Header() {
 
               {/* Theme Toggle Switch */}
               <div className="flex items-center space-x-2">
-                <Sun className="h-4 w-4 text-amber-500" />
+                <Sun className="h-4 w-4 text-[#f1c21b]" />
                 <button
                   onClick={toggleTheme}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-                    isDark ? 'bg-purple-600' : 'bg-gray-300'
+                  className={`relative inline-flex h-6 w-11 items-center rounded-sm transition-colors focus:outline-none focus:ring-1 focus:ring-[#da1e28] focus:ring-offset-2 ${
+                    isDark ? 'bg-[#da1e28]' : 'bg-[#e0e0e0]'
                   }`}
                   title={isDark ? 'Dark mode (click to switch to light)' : 'Light mode (click to switch to dark)'}
                 >
                   <span className="sr-only">Toggle theme</span>
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    className={`inline-block h-4 w-4 transform rounded-sm bg-white transition-transform ${
                       isDark ? 'translate-x-6' : 'translate-x-1'
                     }`}
                   />
                 </button>
-                <Moon className="h-4 w-4 text-purple-400" />
+                <Moon className="h-4 w-4 text-[#a8a8a8]" />
               </div>
             </div>
           </nav>

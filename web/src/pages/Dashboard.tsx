@@ -7,20 +7,20 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, ResponsiveContaine
 
 function StatCard({ title, value, subtext, icon: Icon, color, trend }: any) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+    <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</p>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{value}</p>
-          {subtext && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{subtext}</p>}
+          <p className="text-sm font-medium text-[#525252] dark:text-[#a8a8a8]">{title}</p>
+          <p className="text-3xl font-bold text-[#161616] dark:text-white mt-2">{value}</p>
+          {subtext && <p className="text-sm text-[#525252] dark:text-[#a8a8a8] mt-1">{subtext}</p>}
           {trend && (
-            <div className={`flex items-center mt-2 text-sm ${trend > 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`flex items-center mt-2 text-sm ${trend > 0 ? 'text-[#24a148]' : 'text-[#da1e28]'}`}>
               {trend > 0 ? <ArrowUpCircle className="h-4 w-4 mr-1" /> : <ArrowDownCircle className="h-4 w-4 mr-1" />}
               <span>{Math.abs(trend)}% from last hour</span>
             </div>
           )}
         </div>
-        <div className={`p-3 rounded-lg ${color}`}>
+        <div className={`p-3 rounded-sm ${color}`}>
           <Icon className="h-6 w-6 text-white" />
         </div>
       </div>
@@ -38,7 +38,7 @@ const generatePollData = () => {
   }));
 };
 
-const COLORS = ['#22c55e', '#ef4444', '#6b7280'];
+const COLORS = ['#24a148', '#da1e28', '#525252'];
 
 export function Dashboard() {
   const { topology } = useTopology();
@@ -62,8 +62,8 @@ export function Dashboard() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">Network overview and health status</p>
+        <h1 className="text-2xl font-bold text-[#161616] dark:text-white">Dashboard</h1>
+        <p className="text-[#525252] dark:text-[#a8a8a8] mt-1">Network overview and health status</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -72,60 +72,60 @@ export function Dashboard() {
           value={devices.length}
           subtext={`${deviceStats.online} online, ${deviceStats.offline} offline`}
           icon={Server}
-          color="bg-blue-500"
+          color="bg-[#0f62fe]"
         />
         <StatCard
           title="Network Nodes"
           value={topology.nodes.length}
           subtext={`${topology.links.length} active links`}
           icon={Network}
-          color="bg-purple-500"
+          color="bg-[#161616]"
         />
         <StatCard
           title="Service Checks"
           value={checks.length}
           subtext="Active monitoring"
           icon={Activity}
-          color="bg-green-500"
+          color="bg-[#24a148]"
         />
         <StatCard
           title="System Status"
           value={deviceStats.offline > 0 ? 'Issues' : 'Healthy'}
           subtext={deviceStats.offline > 0 ? `${deviceStats.offline} devices offline` : 'All systems operational'}
           icon={deviceStats.offline > 0 ? AlertCircle : CheckCircle}
-          color={deviceStats.offline > 0 ? 'bg-red-500' : 'bg-green-500'}
+          color={deviceStats.offline > 0 ? 'bg-[#da1e28]' : 'bg-[#24a148]'}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Devices */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Devices</h2>
-            <Link to="/devices" className="text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300">
+            <h2 className="text-lg font-semibold text-[#161616] dark:text-white">Devices</h2>
+            <Link to="/devices" className="text-sm text-[#161616] dark:text-[#a8a8a8] hover:text-[#161616] dark:hover:text-[#f4f4f4]">
               View all →
             </Link>
           </div>
           {devices.length === 0 ? (
-            <p className="text-gray-500 dark:text-gray-400 text-sm">No devices configured</p>
+            <p className="text-[#525252] dark:text-[#a8a8a8] text-sm">No devices configured</p>
           ) : (
             <div className="space-y-3">
               {devices.slice(0, 5).map((device) => (
                 <div
                   key={device.id}
-                  className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                  className="flex items-center justify-between py-2 border-b border-[#f4f4f4] dark:border-[#393939] last:border-0"
                 >
                   <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{device.name || device.ip_address}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{device.ip_address}</p>
+                    <p className="font-medium text-[#161616] dark:text-white">{device.name || device.ip_address}</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">{device.ip_address}</p>
                   </div>
                   <span
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    className={`px-2 py-1 rounded-sm text-xs font-medium ${
                       device.status === 'online'
-                        ? 'bg-green-100 text-green-700'
+                        ? 'bg-[#defbe6] text-[#24a148]'
                         : device.status === 'offline'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-gray-100 text-gray-700'
+                        ? 'bg-[#fff0f1] text-[#da1e28]'
+                        : 'bg-[#e0e0e0] text-[#161616]'
                     }`}
                   >
                     {device.status}
@@ -137,33 +137,33 @@ export function Dashboard() {
         </div>
 
         {/* Service Checks Summary */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Service Checks</h2>
-            <Link to="/checks" className="text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300">
+            <h2 className="text-lg font-semibold text-[#161616] dark:text-white">Service Checks</h2>
+            <Link to="/checks" className="text-sm text-[#161616] dark:text-[#a8a8a8] hover:text-[#161616] dark:hover:text-[#f4f4f4]">
               View all →
             </Link>
           </div>
           {checks.length === 0 ? (
-            <p className="text-gray-500 dark:text-gray-400 text-sm">No service checks configured</p>
+            <p className="text-[#525252] dark:text-[#a8a8a8] text-sm">No service checks configured</p>
           ) : (
             <div className="space-y-3">
               {checks.slice(0, 5).map((check) => (
                 <div
                   key={check.id}
-                  className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                  className="flex items-center justify-between py-2 border-b border-[#f4f4f4] dark:border-[#393939] last:border-0"
                 >
                   <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{check.name}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="font-medium text-[#161616] dark:text-white">{check.name}</p>
+                    <p className="text-sm text-[#525252] dark:text-[#a8a8a8]">
                       {check.check_type} • {check.target}
                     </p>
                   </div>
                   <span
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    className={`px-2 py-1 rounded-sm text-xs font-medium ${
                       check.enabled
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-700'
+                        ? 'bg-[#defbe6] text-[#24a148]'
+                        : 'bg-[#e0e0e0] text-[#161616]'
                     }`}
                   >
                     {check.enabled ? 'Active' : 'Disabled'}
@@ -178,10 +178,10 @@ export function Dashboard() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
         {/* Device Status Distribution */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Device Status Distribution</h2>
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
+          <h2 className="text-lg font-semibold text-[#161616] dark:text-white mb-4">Device Status Distribution</h2>
           {deviceStatusData.length === 0 ? (
-            <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-8">No devices to display</p>
+            <p className="text-[#525252] dark:text-[#a8a8a8] text-sm text-center py-8">No devices to display</p>
           ) : (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
@@ -216,8 +216,8 @@ export function Dashboard() {
         </div>
 
         {/* Poll Success Rate */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Poll Success Rate (Last Hour)</h2>
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
+          <h2 className="text-lg font-semibold text-[#161616] dark:text-white mb-4">Poll Success Rate (Last Hour)</h2>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={pollData}>
               <XAxis dataKey="time" stroke="#6b7280" fontSize={12} />
@@ -239,28 +239,28 @@ export function Dashboard() {
       </div>
 
       {/* Topology Stats */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Topology Overview</h2>
+      <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6 mt-6">
+        <h2 className="text-lg font-semibold text-[#161616] dark:text-white mb-4">Topology Overview</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{topology.nodes.length}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Total Nodes</p>
+          <div className="text-center p-4 bg-[#f4f4f4] dark:bg-[#262626] rounded-sm">
+            <p className="text-2xl font-bold text-[#161616] dark:text-[#a8a8a8]">{topology.nodes.length}</p>
+            <p className="text-sm text-[#525252] dark:text-[#a8a8a8] mt-1">Total Nodes</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div className="text-center p-4 bg-[#f4f4f4] dark:bg-[#262626] rounded-sm">
             <p className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">{topology.links.length}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Active Links</p>
+            <p className="text-sm text-[#525252] dark:text-[#a8a8a8] mt-1">Active Links</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+          <div className="text-center p-4 bg-[#f4f4f4] dark:bg-[#262626] rounded-sm">
+            <p className="text-2xl font-bold text-[#24a148] dark:text-[#42be65]">
               {topology.nodes.filter((n) => n.status === 'online').length}
             </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Online Nodes</p>
+            <p className="text-sm text-[#525252] dark:text-[#a8a8a8] mt-1">Online Nodes</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+          <div className="text-center p-4 bg-[#f4f4f4] dark:bg-[#262626] rounded-sm">
+            <p className="text-2xl font-bold text-[#0f62fe] dark:text-[#78a9ff]">
               {topology.links.filter((l) => l.status === 'active').length}
             </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Active Connections</p>
+            <p className="text-sm text-[#525252] dark:text-[#a8a8a8] mt-1">Active Connections</p>
           </div>
         </div>
       </div>
