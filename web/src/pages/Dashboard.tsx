@@ -4,7 +4,8 @@ import { useTopology } from '../hooks/useTopology';
 import { useDevices } from '../hooks/useDevices';
 import { useChecks } from '../hooks/useChecks';
 import { useActiveAlerts } from '../hooks/useActiveAlerts';
-import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+import { usePollHistory } from '../hooks/usePollHistory';
+import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from 'recharts';
 
 function StatCard({ title, value, subtext, icon: Icon, color, trend }: any) {
   return (
@@ -44,6 +45,7 @@ export function Dashboard() {
   const { devices } = useDevices();
   const { checks } = useChecks();
   const { alerts: activeAlerts, isLoading: alertsLoading, acknowledge, resolve } = useActiveAlerts();
+  const { history: pollHistory, isLoading: pollHistoryLoading } = usePollHistory(250);
 
   const deviceStats = {
     online: devices.filter((d) => d.status === 'online').length,
@@ -313,6 +315,52 @@ export function Dashboard() {
             </LineChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* Device Uptime Chart */}
+      <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6 mt-6">
+        <h2 className="text-lg font-semibold text-[#161616] dark:text-white mb-4">Device Uptime (Last 250 Polls)</h2>
+        {pollHistoryLoading || pollHistory.length === 0 ? (
+          <p className="text-[#525252] dark:text-[#a8a8a8] text-sm text-center py-8">No poll history available</p>
+        ) : (
+          (() => {
+            // Aggregate uptime % per device
+            const deviceStats: Record<string, { name: string; total: number; online: number }> = {};
+            for (const entry of pollHistory) {
+              const id = entry.device_id;
+              if (!deviceStats[id]) {
+                deviceStats[id] = { name: entry.name || entry.ip_address || id, total: 0, online: 0 };
+              }
+              deviceStats[id].total += 1;
+              if (entry.status === 'online') {
+                deviceStats[id].online += 1;
+              }
+            }
+            const uptimeData = Object.values(deviceStats)
+              .map((d) => ({
+                name: d.name,
+                uptime: Math.round((d.online / d.total) * 100),
+              }))
+              .sort((a, b) => a.name.localeCompare(b.name));
+            return (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={uptimeData}>
+                  <XAxis dataKey="name" stroke="#6b7280" fontSize={12} angle={-30} textAnchor="end" height={60} />
+                  <YAxis stroke="#6b7280" fontSize={12} domain={[0, 100]} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgb(31, 41, 55)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      color: '#fff',
+                    }}
+                  />
+                  <Bar dataKey="uptime" fill="#24a148" name="Uptime %" />
+                </BarChart>
+              </ResponsiveContainer>
+            );
+          })()
+        )}
       </div>
 
       {/* Topology Stats */}

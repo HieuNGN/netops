@@ -191,4 +191,6 @@ export const maintenanceWindowsApi = {
 export const healthApi = {
   check: () => apiClient.get('/health'),
   stats: () => apiClient.get('/stats'),
+  pollHistory: (limit?: number) =>
+    apiClient.get('/poll-history', { params: { limit } }),
 };
