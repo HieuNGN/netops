@@ -44,7 +44,7 @@ export function Dashboard() {
   const { topology } = useTopology();
   const { devices } = useDevices();
   const { checks } = useChecks();
-  const { alerts: activeAlerts, isLoading: alertsLoading, acknowledge, resolve } = useActiveAlerts();
+  const { alerts: activeAlerts, acknowledge, resolve } = useActiveAlerts();
   const { history: pollHistory, isLoading: pollHistoryLoading } = usePollHistory(250);
 
   const deviceStats = {
