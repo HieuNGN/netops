@@ -1,0 +1,406 @@
+"""Integration tests for NetOps API endpoints."""
+
+import pytest
+from httpx import AsyncClient, ASGITransport
+
+
+@pytest.fixture
+async def client():
+    """Create async test client for FastAPI app."""
+    from src.collector.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+
+
+class TestHealthEndpoint:
+    """Tests for /health endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_health_check(self, client):
+        """Test health endpoint returns ok status."""
+        response = await client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+
+
+class TestTopologyEndpoints:
+    """Tests for topology endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_topology_empty(self, client):
+        """Test getting empty topology."""
+        response = await client.get("/topology")
+        assert response.status_code == 200
+        data = response.json()
+        assert "nodes" in data
+        assert "links" in data
+
+    @pytest.mark.asyncio
+    async def test_simulate_topology(self, client):
+        """Test simulating network topology."""
+        response = await client.post("/topology/simulate")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "simulated"
+        assert data["nodes"] == 8  # 8 simulated devices
+        assert data["links"] == 8  # 8 links in hierarchy
+
+    @pytest.mark.asyncio
+    async def test_topology_refresh(self, client):
+        """Test triggering topology refresh."""
+        response = await client.post("/topology/refresh")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "refreshed"
+
+
+class TestDeviceEndpoints:
+    """Tests for device CRUD endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_list_devices_empty(self, client):
+        """Test listing devices when empty."""
+        response = await client.get("/devices")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 0
+
+    @pytest.mark.asyncio
+    async def test_create_device(self, client):
+        """Test creating a new device."""
+        device_data = {
+            "name": "test-switch-01",
+            "ip_address": "192.168.1.100",
+            "community": "public",
+        }
+        response = await client.post("/devices", json=device_data)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "test-switch-01"
+        assert data["ip_address"] == "192.168.1.100"
+        assert data["community"] == "public"
+        return data["id"]
+
+    @pytest.mark.asyncio
+    async def test_create_duplicate_device(self, client):
+        """Test creating duplicate device returns conflict."""
+        # Create first device
+        await client.post("/devices", json={
+            "name": "dup-switch",
+            "ip_address": "192.168.1.200",
+            "community": "public",
+        })
+        # Try to create duplicate
+        response = await client.post("/devices", json={
+            "name": "dup-switch-2",
+            "ip_address": "192.168.1.200",  # Same IP
+            "community": "public",
+        })
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_get_device(self, client):
+        """Test getting a specific device."""
+        # Create device first
+        create_response = await client.post("/devices", json={
+            "name": "get-test-switch",
+            "ip_address": "192.168.1.101",
+            "community": "public",
+        })
+        device_id = create_response.json()["id"]
+
+        # Get device
+        response = await client.get(f"/devices/{device_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "get-test-switch"
+
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_device(self, client):
+        """Test getting nonexistent device returns 404."""
+        response = await client.get("/devices/nonexistent-id")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_device(self, client):
+        """Test updating a device."""
+        # Create device
+        create_response = await client.post("/devices", json={
+            "name": "update-test",
+            "ip_address": "192.168.1.102",
+            "community": "public",
+        })
+        device_id = create_response.json()["id"]
+
+        # Update device
+        response = await client.put(f"/devices/{device_id}", json={
+            "name": "updated-switch",
+            "community": "private",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "updated-switch"
+        assert data["community"] == "private"
+
+    @pytest.mark.asyncio
+    async def test_delete_device(self, client):
+        """Test deleting a device."""
+        # Create device
+        create_response = await client.post("/devices", json={
+            "name": "delete-test",
+            "ip_address": "192.168.1.103",
+            "community": "public",
+        })
+        device_id = create_response.json()["id"]
+
+        # Delete device
+        response = await client.delete(f"/devices/{device_id}")
+        assert response.status_code == 200
+        assert response.json()["status"] == "deleted"
+
+        # Verify deletion
+        get_response = await client.get(f"/devices/{device_id}")
+        assert get_response.status_code == 404
+
+
+class TestServiceCheckEndpoints:
+    """Tests for service check endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_list_service_checks_empty(self, client):
+        """Test listing service checks when empty."""
+        response = await client.get("/checks")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+    @pytest.mark.asyncio
+    async def test_create_http_check(self, client):
+        """Test creating HTTP service check."""
+        check_data = {
+            "name": "http-health-check",
+            "check_type": "http",
+            "target": "https://httpbin.org/get",
+            "interval_seconds": 60,
+            "timeout_seconds": 10,
+            "config": {"method": "GET", "expected_status": 200},
+            "enabled": True,
+        }
+        response = await client.post("/checks", json=check_data)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "http-health-check"
+        assert data["check_type"] == "http"
+
+    @pytest.mark.asyncio
+    async def test_create_tcp_check(self, client):
+        """Test creating TCP service check."""
+        check_data = {
+            "name": "ssh-check",
+            "check_type": "tcp",
+            "target": "localhost:22",
+            "interval_seconds": 30,
+            "timeout_seconds": 5,
+            "enabled": True,
+        }
+        response = await client.post("/checks", json=check_data)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["check_type"] == "tcp"
+
+    @pytest.mark.asyncio
+    async def test_create_invalid_check_type(self, client):
+        """Test creating check with invalid type returns 400."""
+        response = await client.post("/checks", json={
+            "name": "invalid-check",
+            "check_type": "invalid_type",
+            "target": "localhost",
+        })
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_get_service_check(self, client):
+        """Test getting a specific service check."""
+        # Create check
+        create_response = await client.post("/checks", json={
+            "name": "get-test-check",
+            "check_type": "tcp",
+            "target": "localhost:80",
+            "enabled": True,
+        })
+        check_id = create_response.json()["id"]
+
+        # Get check
+        response = await client.get(f"/checks/{check_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "get-test-check"
+
+    @pytest.mark.asyncio
+    async def test_update_service_check(self, client):
+        """Test updating a service check."""
+        # Create check
+        create_response = await client.post("/checks", json={
+            "name": "update-test-check",
+            "check_type": "http",
+            "target": "https://example.com",
+            "interval_seconds": 60,
+            "enabled": True,
+        })
+        check_id = create_response.json()["id"]
+
+        # Update check
+        response = await client.put(f"/checks/{check_id}", json={
+            "interval_seconds": 120,
+            "enabled": False,
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["interval_seconds"] == 120
+        assert data["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_delete_service_check(self, client):
+        """Test deleting a service check."""
+        # Create check
+        create_response = await client.post("/checks", json={
+            "name": "delete-test-check",
+            "check_type": "tcp",
+            "target": "localhost:443",
+            "enabled": True,
+        })
+        check_id = create_response.json()["id"]
+
+        # Delete check
+        response = await client.delete(f"/checks/{check_id}")
+        assert response.status_code == 200
+        assert response.json()["status"] == "deleted"
+
+
+class TestAlertEndpoints:
+    """Tests for alert configuration endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_list_alerts_empty(self, client):
+        """Test listing alerts when empty."""
+        response = await client.get("/alerts")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+    @pytest.mark.asyncio
+    async def test_create_webhook_alert(self, client):
+        """Test creating webhook alert."""
+        alert_data = {
+            "name": "webhook-test-alert",
+            "alert_type": "device_down",
+            "channel": "webhook",
+            "config": {"url": "https://httpbin.org/post"},
+            "enabled": True,
+        }
+        response = await client.post("/alerts", json=alert_data)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "webhook-test-alert"
+        assert data["channel"] == "webhook"
+
+    @pytest.mark.asyncio
+    async def test_create_slack_alert(self, client):
+        """Test creating Slack alert."""
+        alert_data = {
+            "name": "slack-test-alert",
+            "alert_type": "topology_change",
+            "channel": "slack",
+            "config": {"webhook_url": "https://hooks.slack.com/services/XXX"},
+            "enabled": True,
+        }
+        response = await client.post("/alerts", json=alert_data)
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_create_invalid_channel(self, client):
+        """Test creating alert with invalid channel returns 400."""
+        response = await client.post("/alerts", json={
+            "name": "invalid-alert",
+            "alert_type": "device_down",
+            "channel": "invalid_channel",
+            "config": {},
+        })
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_get_alert_history(self, client):
+        """Test getting alert history."""
+        response = await client.get("/alerts/history")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+
+class TestStatsEndpoint:
+    """Tests for /stats endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_poller_stats(self, client):
+        """Test getting poller statistics."""
+        response = await client.get("/stats")
+        assert response.status_code == 200
+        data = response.json()
+        assert "poll_interval" in data
+
+
+class TestDiscoveryEndpoint:
+    """Tests for /discover endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_discover_network(self, client):
+        """Test network discovery."""
+        response = await client.post("/discover", json={
+            "network_range": "127.0.0.1/32",
+            "community": "public",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "found" in data or "scanned" in data
+
+
+class TestTopologyHistoryEndpoint:
+    """Tests for /topology/history endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_topology_history(self, client):
+        """Test getting topology history."""
+        response = await client.get("/topology/history")
+        assert response.status_code == 200
+        data = response.json()
+        assert "events" in data
+        assert isinstance(data["events"], list)
+
+
+class TestPollHistoryEndpoint:
+    """Tests for /poll-history endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_poll_history(self, client):
+        """Test getting poll history."""
+        response = await client.get("/poll-history")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+
+class TestMetricsEndpoint:
+    """Tests for /metrics endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_metrics_endpoint(self, client):
+        """Test Prometheus metrics endpoint."""
+        response = await client.get("/metrics")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
+        # Check for expected metrics
+        content = response.text
+        assert "netops" in content.lower()

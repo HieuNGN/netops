@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 from pydantic import BaseModel, Field
 
 from .config import ServerConfig
@@ -14,6 +15,13 @@ from .discovery import add_discovered_devices
 from .snmp_poller import SNMPPoller
 from .topology_builder import TopologyBuilder
 from .utils import logger
+
+# Prometheus metrics
+METRICS_POLLS = Counter("netops_polls_total", "Total number of SNMP polls")
+METRICS_TOPOLOGY_CHANGES = Counter("netops_topology_changes_total", "Total topology changes")
+METRICS_DEVICES = Gauge("netops_devices_total", "Total number of monitored devices")
+METRICS_CHECKS = Gauge("netops_service_checks_total", "Total number of service checks")
+METRICS_ALERTS = Gauge("netops_alerts_total", "Total number of alert configurations")
 
 # Global state
 poller: Optional[SNMPPoller] = None
@@ -139,43 +147,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Include routes with /api prefix
-api_router = FastAPI(title="NetOps API")
-
-
-# Request/Response models
-class DeviceCreate(BaseModel):
-    name: str
-    ip_address: str
-    community: str = "public"
-
-
-class DeviceUpdate(BaseModel):
-    name: Optional[str] = None
-    community: Optional[str] = None
-    status: Optional[str] = None
-
-
-class AlertConfigCreate(BaseModel):
-    name: str
-    alert_type: str = Field(..., description="Type: device_down, device_up, link_down, topology_change")
-    channel: str = Field(..., description="Channel: webhook, slack, telegram, whatsapp, email")
-    config: dict[str, Any] = {}
-    enabled: bool = True
-
-    def model_validate(self, values):
-        """Validate channel is supported."""
-        valid_channels = {"webhook", "slack", "telegram", "whatsapp", "email"}
-        if values.get("channel") not in valid_channels:
-            raise ValueError(f"Unsupported channel. Must be one of: {valid_channels}")
-        return super().model_validate(values)
-
-
-class DiscoveryRequest(BaseModel):
-    network_range: str
-    community: str = "public"
-
-
 # Health endpoint
 @app.get("/health")
 async def health_check():
@@ -186,6 +157,32 @@ async def health_check():
     if alert_service:
         result["alert_service"] = {"initialized": True}
     return result
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    # Update gauges from current state
+    if db_client:
+        try:
+            devices = await db_client.list_devices()
+            METRICS_DEVICES.set(len(devices))
+        except Exception:
+            pass
+        try:
+            checks = await db_client.list_service_checks()
+            METRICS_CHECKS.set(len(checks))
+        except Exception:
+            pass
+        try:
+            alerts = await db_client.list_alert_configs()
+            METRICS_ALERTS.set(len(alerts))
+        except Exception:
+            pass
+    if poller:
+        stats = poller.get_stats()
+        METRICS_POLLS.inc(stats.get("polls", 0))
+    return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # Topology endpoints
@@ -378,6 +375,11 @@ async def delete_device(device_id: str):
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
+    if not await db_client.delete_device(device_id):
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    return {"status": "deleted"}
+
 
 # Topology history endpoint (Phase 6)
 @app.get("/topology/history")
@@ -387,11 +389,6 @@ async def get_topology_history(limit: int = 100):
         raise HTTPException(status_code=503, detail="Database not initialized")
 
     return {"events": await db_client.get_topology_history(limit)}
-
-    if not await db_client.delete_device(device_id):
-        raise HTTPException(status_code=404, detail="Device not found")
-
-    return {"status": "deleted"}
 
 
 # Discovery endpoint

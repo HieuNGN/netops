@@ -4,6 +4,7 @@ import asyncio
 import time
 from typing import Any, Callable, Optional
 
+from ..utils import logger
 from .base import CheckDefinition, CheckExecutor, CheckResult, CheckStatus
 from .http_check import HTTPCheckExecutor
 from .tcp_check import TCPCheckExecutor
@@ -64,9 +65,23 @@ class CheckScheduler:
 
     async def _load_checks_from_db(self):
         """Load check definitions from database."""
-        # This will be implemented when we add the check tables to DB
-        # For now, load from in-memory config
-        pass
+        try:
+            checks = await self.db_client.list_service_checks()
+            for check in checks:
+                definition = CheckDefinition(
+                    id=check["id"],
+                    name=check["name"],
+                    check_type=check["check_type"],
+                    target=check["target"],
+                    interval_seconds=check["interval_seconds"],
+                    timeout_seconds=check["timeout_seconds"],
+                    enabled=bool(check["enabled"]),
+                    config=check.get("config_json", {}),
+                )
+                self._check_definitions[definition.id] = definition
+            logger.info(f"Loaded {len(checks)} service checks from database")
+        except Exception as e:
+            logger.warning(f"Failed to load checks from database: {e}")
 
     async def _schedule_all_checks(self):
         """Schedule all check definitions."""

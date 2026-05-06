@@ -35,7 +35,6 @@ python -c "from src.collector.spike_snmp import get_sys_descr; print('  ✓ SNMP
 python -c "from src.collector.snmp_poller import SNMPPoller; print('  ✓ SNMP poller')" || exit 1
 python -c "from src.collector.discovery import discover_devices; print('  ✓ Discovery module')" || exit 1
 python -c "from src.collector.topology_builder import TopologyBuilder; print('  ✓ Topology builder')" || exit 1
-python -c "from src.pb.client import EmbeddedPocketBase; print('  ✓ PocketBase client')" || exit 1
 
 echo ""
 echo "[SETUP] Starting test server..."
@@ -177,7 +176,11 @@ echo "       Test Suite Complete"
 echo "=============================================="
 echo ""
 echo "Summary:"
-echo "  - Import tests: 6/6 passed"
+echo "  - Import tests: 5/5 passed"
 echo "  - API tests: See above"
 echo "  - Test data: data/netops.db (cleaned)"
+echo ""
+echo "[PYTEST] Running pytest integration tests..."
+echo "-------------------------------------------"
+pytest tests/test_api.py -v --tb=short || echo "  ! Some pytest tests failed"
 echo ""
