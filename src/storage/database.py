@@ -481,7 +481,59 @@ class AsyncPostgresClient:
                     list(removed_link_ids),
                 )
 
+            # Record topology changes in history
+            if any(changes.values()):
+                await self._record_topology_changes(conn, changes, nodes, links)
+
             return changes
+
+    async def _record_topology_changes(
+        self, conn, changes: dict, nodes: list, links: list
+    ):
+        """Record topology changes in history table for auditing."""
+        event_type = "topology_change"
+        if changes["nodes_added"] > 0:
+            for node in nodes:
+                await conn.execute(
+                    """
+                    INSERT INTO topology_history (event_type, node_id, new_status, details)
+                    VALUES ($1, $2, $3, $4)
+                    """,
+                    event_type,
+                    node["id"],
+                    node.get("status", "unknown"),
+                    json.dumps({"action": "added", "type": "node"}),
+                )
+        if changes["links_added"] > 0:
+            for link in links:
+                await conn.execute(
+                    """
+                    INSERT INTO topology_history (event_type, link_id, new_status, details)
+                    VALUES ($1, $2, $3, $4)
+                    """,
+                    event_type,
+                    link.get("id"),
+                    link.get("status", "active"),
+                    json.dumps({"action": "added", "type": "link"}),
+                )
+        if changes["nodes_removed"] > 0:
+            await conn.execute(
+                """
+                INSERT INTO topology_history (event_type, details)
+                VALUES ($1, $2)
+                """,
+                event_type,
+                json.dumps({"action": "removed", "type": "nodes", "count": changes["nodes_removed"]}),
+            )
+        if changes["links_removed"] > 0:
+            await conn.execute(
+                """
+                INSERT INTO topology_history (event_type, details)
+                VALUES ($1, $2)
+                """,
+                event_type,
+                json.dumps({"action": "removed", "type": "links", "count": changes["links_removed"]}),
+            )
 
     async def add_poll_result(
         self, device_id: str, status: str, response_time_ms: float = 0, error: str = ""

@@ -1,11 +1,12 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Network, Activity, Server, AlertTriangle, Settings } from 'lucide-react';
+import { Network, Activity, Server, AlertTriangle, Settings, History } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import { ConnectionStatus } from './ConnectionStatus';
 
 const navItems = [
   { path: '/', icon: Activity, label: 'Dashboard' },
   { path: '/topology', icon: Network, label: 'Topology' },
+  { path: '/topology/history', icon: History, label: 'History' },
   { path: '/devices', icon: Server, label: 'Devices' },
   { path: '/checks', icon: Activity, label: 'Service Checks' },
   { path: '/alerts', icon: AlertTriangle, label: 'Alerts' },

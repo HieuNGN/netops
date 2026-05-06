@@ -81,6 +81,17 @@ export interface AlertConfig {
   created: string;
 }
 
+export interface TopologyHistoryEvent {
+  id: number;
+  event_type: string;
+  node_id: string | null;
+  link_id: string | null;
+  old_status: string | null;
+  new_status: string | null;
+  details: Record<string, any>;
+  recorded_at: string;
+}
+
 // Devices API
 export const devicesApi = {
   list: () => apiClient.get<Device[]>('/devices'),
@@ -99,6 +110,8 @@ export const topologyApi = {
   get: () => apiClient.get<TopologyData>('/topology'),
   refresh: () => apiClient.post('/topology/refresh'),
   getStreamUrl: () => `${import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')}/topology/stream`,
+  history: (limit?: number) =>
+    apiClient.get<{ events: TopologyHistoryEvent[] }>('/topology/history', { params: { limit } }),
 };
 
 // Service Checks API

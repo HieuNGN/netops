@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Topology = lazy(() => import('./pages/Topology'));
+const TopologyHistory = lazy(() => import('./pages/TopologyHistory'));
 const Devices = lazy(() => import('./pages/Devices'));
 const ServiceChecks = lazy(() => import('./pages/ServiceChecks'));
 const Alerts = lazy(() => import('./pages/Alerts'));
@@ -38,6 +39,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/topology" element={<Topology />} />
+                  <Route path="/topology/history" element={<TopologyHistory />} />
                   <Route path="/devices" element={<Devices />} />
                   <Route path="/checks" element={<ServiceChecks />} />
                   <Route path="/alerts" element={<Alerts />} />
