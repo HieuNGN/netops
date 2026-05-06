@@ -49,25 +49,47 @@ export function Header() {
             <div className="flex items-center space-x-3 ml-2">
               <ConnectionStatus />
 
-              {/* Theme Toggle Switch */}
-              <div className="flex items-center space-x-2">
-                <Sun className="h-4 w-4 text-[#f1c21b]" />
-                <button
-                  onClick={toggleTheme}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-sm transition-colors focus:outline-none focus:ring-1 focus:ring-[#da1e28] focus:ring-offset-2 ${
-                    isDark ? 'bg-[#da1e28]' : 'bg-[#e0e0e0]'
-                  }`}
-                  title={isDark ? 'Dark mode (click to switch to light)' : 'Light mode (click to switch to dark)'}
+              {/* Theme Toggle TrackPoint */}
+              <button
+                onClick={toggleTheme}
+                className="group relative flex items-center justify-center focus:outline-none"
+                title={isDark ? 'Dark mode (click to switch to light)' : 'Light mode (click to switch to dark)'}
+              >
+                <span className="sr-only">Toggle theme</span>
+                {/* TrackPoint nub */}
+                <span
+                  className={`
+                    relative inline-flex items-center justify-center
+                    w-5 h-5 rounded-full
+                    transition-all duration-200 ease-out
+                    ${isDark
+                      ? 'bg-[#c41e3a] shadow-[0_1px_3px_rgba(0,0,0,0.4)]'
+                      : 'bg-[#e0e0e0] shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]'
+                    }
+                    group-hover:scale-110 group-active:scale-95
+                  `}
                 >
-                  <span className="sr-only">Toggle theme</span>
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-sm bg-white transition-transform ${
-                      isDark ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-                <Moon className="h-4 w-4 text-[#a8a8a8]" />
-              </div>
+                  {/* TrackPoint texture dots */}
+                  <span className={`
+                    absolute inset-0 rounded-full
+                    ${isDark
+                      ? 'bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.15)_1px,transparent_1px)] bg-[length:3px_3px]'
+                      : 'bg-[radial-gradient(circle_at_30%_30%,rgba(0,0,0,0.08)_1px,transparent_1px)] bg-[length:3px_3px]'
+                    }
+                  `} />
+                  {/* Small specular highlight */}
+                  <span className={`
+                    absolute top-[2px] left-[3px] w-[6px] h-[3px] rounded-[50%]
+                    ${isDark ? 'bg-white/20' : 'bg-white/60'}
+                  `} />
+                </span>
+                {/* Mode indicator dot */}
+                <span className={`
+                  absolute -bottom-1 left-1/2 -translate-x-1/2
+                  w-1 h-1 rounded-full transition-colors duration-200
+                  ${isDark ? 'bg-[#da1e28]' : 'bg-[#525252]'}
+                `} />
+              </button>
             </div>
           </nav>
         </div>

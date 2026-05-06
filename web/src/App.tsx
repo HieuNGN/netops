@@ -26,7 +26,7 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <BrowserRouter>
-            <div className="min-h-screen bg-background text-foreground">
+            <div className="min-h-screen bg-white dark:bg-black text-[#161616] dark:text-[#f4f4f4]">
               <Header />
               <Routes>
                 <Route path="/" element={<Dashboard />} />
