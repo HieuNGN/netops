@@ -94,7 +94,8 @@ export interface TopologyHistoryEvent {
 
 // Devices API
 export const devicesApi = {
-  list: () => apiClient.get<Device[]>('/devices'),
+  list: (limit?: number, offset?: number) =>
+    apiClient.get<Device[]>('/devices', { params: { limit, offset } }),
   get: (id: string) => apiClient.get<Device>(`/devices/${id}`),
   create: (data: { name: string; ip_address: string; community: string }) =>
     apiClient.post<Device>('/devices', data),
@@ -116,7 +117,8 @@ export const topologyApi = {
 
 // Service Checks API
 export const checksApi = {
-  list: () => apiClient.get<ServiceCheck[]>('/checks'),
+  list: (limit?: number, offset?: number) =>
+    apiClient.get<ServiceCheck[]>('/checks', { params: { limit, offset } }),
   get: (id: string) => apiClient.get<ServiceCheck>(`/checks/${id}`),
   create: (data: {
     name: string;
@@ -138,7 +140,8 @@ export const checksApi = {
 
 // Alerts API
 export const alertsApi = {
-  list: () => apiClient.get<AlertConfig[]>('/alerts'),
+  list: (limit?: number, offset?: number) =>
+    apiClient.get<AlertConfig[]>('/alerts', { params: { limit, offset } }),
   create: (data: {
     name: string;
     alert_type: string;
@@ -163,7 +166,8 @@ export interface MaintenanceWindow {
 
 // Maintenance Windows API
 export const maintenanceWindowsApi = {
-  list: () => apiClient.get<{ windows: MaintenanceWindow[] }>('/maintenance-windows'),
+  list: (limit?: number, offset?: number) =>
+    apiClient.get<{ windows: MaintenanceWindow[] }>('/maintenance-windows', { params: { limit, offset } }),
   create: (data: { name: string; start_time: string; end_time: string; description?: string }) =>
     apiClient.post<{ window: MaintenanceWindow }>('/maintenance-windows', data),
   delete: (id: string) => apiClient.delete(`/maintenance-windows/${id}`),
