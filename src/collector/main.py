@@ -476,6 +476,36 @@ async def get_alert_history(limit: int = 50):
         return [dict(row) for row in rows]
 
 
+@app.get("/alerts/active")
+async def get_active_alerts():
+    """Get currently firing (active) alerts."""
+    if not alert_service:
+        raise HTTPException(status_code=503, detail="Alert service not initialized")
+    return {"alerts": alert_service.get_active_alerts()}
+
+
+@app.post("/alerts/active/{alert_key}/acknowledge")
+async def acknowledge_alert(alert_key: str):
+    """Acknowledge an active alert to suppress repeated notifications."""
+    if not alert_service:
+        raise HTTPException(status_code=503, detail="Alert service not initialized")
+    success = alert_service.acknowledge_alert(alert_key)
+    if not success:
+        raise HTTPException(status_code=404, detail="Alert not found or already acknowledged")
+    return {"status": "acknowledged", "key": alert_key}
+
+
+@app.post("/alerts/active/{alert_key}/resolve")
+async def resolve_alert(alert_key: str):
+    """Manually resolve an active alert."""
+    if not alert_service:
+        raise HTTPException(status_code=503, detail="Alert service not initialized")
+    success = alert_service.resolve_alert(alert_key)
+    if not success:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "resolved", "key": alert_key}
+
+
 @app.post("/alerts/{alert_id}/test")
 async def test_alert(alert_id: str):
     """Send a test alert."""

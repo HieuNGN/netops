@@ -18,6 +18,8 @@ class AlertService:
         self.db_client = db_client
         self._device_status_cache: dict[str, str] = {}  # device_id -> status
         self._link_status_cache: dict[str, str] = {}  # link_id -> status
+        # Active alerts keyed by (alert_type, target_id) to prevent duplicates
+        self._active_alerts: dict[str, dict[str, Any]] = {}
 
     def get_notification_channel(self, channel_type: str, config: dict[str, Any]) -> Optional[NotificationChannel]:
         """Factory method to create notification channel instances."""
@@ -179,6 +181,34 @@ class AlertService:
 
         return stats
 
+    def get_active_alerts(self) -> list[dict[str, Any]]:
+        """Return list of currently firing alerts."""
+        return [
+            {
+                "key": key,
+                "alert_type": alert["alert_type"],
+                "target_id": alert["target_id"],
+                "severity": alert["severity"],
+                "title": alert["title"],
+                "message": alert["message"],
+                "status": alert["status"],
+                "fired_at": alert["fired_at"],
+            }
+            for key, alert in self._active_alerts.items()
+        ]
+
+    def acknowledge_alert(self, alert_key: str) -> bool:
+        """Acknowledge an active alert to suppress repeated notifications."""
+        alert = self._active_alerts.get(alert_key)
+        if alert and alert["status"] == "firing":
+            alert["status"] = "acknowledged"
+            return True
+        return False
+
+    def resolve_alert(self, alert_key: str) -> bool:
+        """Manually resolve an active alert."""
+        return self._active_alerts.pop(alert_key, None) is not None
+
     async def _record_alert(self, alert_config_id: str, alert: dict[str, Any]):
         """Record alert in history."""
         try:
@@ -203,6 +233,20 @@ class AlertService:
                 statuses[device_id] = status
         return statuses
 
+    def _make_alert_key(self, alert_type: str, target_id: str) -> str:
+        """Create unique key for deduplicating active alerts."""
+        return f"{alert_type}:{target_id}"
+
+    def _is_alert_active(self, alert_type: str, target_id: str) -> bool:
+        """Check if an alert for this condition is already firing."""
+        key = self._make_alert_key(alert_type, target_id)
+        return key in self._active_alerts
+
+    def _resolve_active_alert(self, alert_type: str, target_id: str) -> Optional[dict[str, Any]]:
+        """Mark an active alert as resolved and return it."""
+        key = self._make_alert_key(alert_type, target_id)
+        return self._active_alerts.pop(key, None)
+
     async def on_topology_change(
         self,
         changes: dict[str, int],
@@ -212,6 +256,7 @@ class AlertService:
         Main entry point for topology change handling.
 
         Called by SNMPPoller when topology changes are detected.
+        Implements alert state machine: firing -> acknowledged -> resolved.
         """
         # Get current device statuses
         current_statuses = self.get_device_statuses(topology)
@@ -224,9 +269,43 @@ class AlertService:
             current_statuses,
         )
 
-        # Dispatch alerts
-        if alerts:
-            await self.dispatch_alerts(alerts)
+        # Deduplicate: skip alerts already firing for same condition
+        new_alerts = []
+        for alert in alerts:
+            target_id = alert.get("device_id") or alert.get("check_id") or "topology"
+            if not self._is_alert_active(alert["alert_type"], target_id):
+                new_alerts.append(alert)
+
+        # Dispatch new alerts
+        if new_alerts:
+            await self.dispatch_alerts(new_alerts)
+            # Track as active
+            for alert in new_alerts:
+                target_id = alert.get("device_id") or alert.get("check_id") or "topology"
+                key = self._make_alert_key(alert["alert_type"], target_id)
+                self._active_alerts[key] = {
+                    "alert_type": alert["alert_type"],
+                    "target_id": target_id,
+                    "severity": alert.get("severity", "info"),
+                    "title": alert.get("title", ""),
+                    "message": alert.get("message", ""),
+                    "fired_at": __import__("time").time(),
+                    "status": "firing",
+                }
+
+        # Auto-resolve recovered device_down alerts
+        for device_id, current_status in current_statuses.items():
+            if current_status == "online":
+                resolved = self._resolve_active_alert("device_down", device_id)
+                if resolved:
+                    # Dispatch recovery notification
+                    await self.dispatch_alerts([{
+                        "alert_type": "device_up",
+                        "severity": "info",
+                        "title": "Device Recovered",
+                        "message": f"Device {device_id} is back online",
+                        "device_id": device_id,
+                    }])
 
         # Update cache
         self._device_status_cache = current_statuses
@@ -238,6 +317,19 @@ class AlertService:
         Called by CheckScheduler when a check completes.
         """
         from src.collector.checks.base import CheckStatus
+
+        # Auto-resolve if check recovers
+        if result.status == CheckStatus.UP:
+            resolved = self._resolve_active_alert("check_down", result.target_id)
+            if resolved or self._resolve_active_alert("check_degraded", result.target_id):
+                await self.dispatch_alerts([{
+                    "alert_type": "device_up",
+                    "severity": "info",
+                    "title": "Service Check Recovered",
+                    "message": f"{result.check_type} check for {result.target_id} is now passing",
+                    "check_id": result.target_id,
+                }])
+            return
 
         alerts = []
 
@@ -261,6 +353,22 @@ class AlertService:
                 "check_type": result.check_type,
             })
 
-        # Dispatch alerts if any
-        if alerts:
-            await self.dispatch_alerts(alerts)
+        # Deduplicate and dispatch
+        new_alerts = []
+        for alert in alerts:
+            target_id = alert.get("check_id", "unknown")
+            if not self._is_alert_active(alert["alert_type"], target_id):
+                new_alerts.append(alert)
+                key = self._make_alert_key(alert["alert_type"], target_id)
+                self._active_alerts[key] = {
+                    "alert_type": alert["alert_type"],
+                    "target_id": target_id,
+                    "severity": alert.get("severity", "info"),
+                    "title": alert.get("title", ""),
+                    "message": alert.get("message", ""),
+                    "fired_at": __import__("time").time(),
+                    "status": "firing",
+                }
+
+        if new_alerts:
+            await self.dispatch_alerts(new_alerts)
