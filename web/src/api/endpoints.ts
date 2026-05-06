@@ -6,11 +6,19 @@ export interface Device {
   name: string;
   ip_address: string;
   community: string;
-  status: 'online' | 'offline' | 'unknown';
+  status: 'online' | 'offline' | 'unknown' | 'discovered';
   sys_descr: string;
+  discovery_method: string;
   last_polled: string;
   created: string;
   updated: string;
+}
+
+export interface DiscoveryResult {
+  scanned: number;
+  found: number;
+  added: number;
+  by_method: Record<string, number>;
 }
 
 export interface TopologyNode {
@@ -82,6 +90,8 @@ export const devicesApi = {
   update: (id: string, data: Partial<Device>) =>
     apiClient.put<Device>(`/devices/${id}`, data),
   delete: (id: string) => apiClient.delete(`/devices/${id}`),
+  discover: (data: { network_range: string; community?: string; method?: string }) =>
+    apiClient.post<DiscoveryResult>('/discover', data),
 };
 
 // Topology API

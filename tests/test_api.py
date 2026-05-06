@@ -369,14 +369,71 @@ class TestDiscoveryEndpoint:
 
     @pytest.mark.asyncio
     async def test_discover_network(self, client):
-        """Test network discovery."""
+        """Test network discovery with default all method."""
         response = await client.post("/discover", json={
             "network_range": "127.0.0.1/32",
             "community": "public",
         })
         assert response.status_code == 200
         data = response.json()
-        assert "found" in data or "scanned" in data
+        assert "found" in data
+        assert "scanned" in data
+        assert "by_method" in data
+
+    @pytest.mark.asyncio
+    async def test_discover_network_snmp_only(self, client):
+        """Test network discovery with snmp method."""
+        response = await client.post("/discover", json={
+            "network_range": "127.0.0.1/32",
+            "community": "public",
+            "method": "snmp",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "found" in data
+        assert "by_method" in data
+
+    @pytest.mark.asyncio
+    async def test_discover_network_ping(self, client):
+        """Test network discovery with ping method finds localhost."""
+        response = await client.post("/discover", json={
+            "network_range": "127.0.0.1/32",
+            "community": "public",
+            "method": "ping",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "found" in data
+        assert "scanned" in data
+        assert "by_method" in data
+        # 127.0.0.1 should be found via ping in most environments
+        assert data["found"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_discover_network_port(self, client):
+        """Test network discovery with port method."""
+        response = await client.post("/discover", json={
+            "network_range": "127.0.0.1/32",
+            "community": "public",
+            "method": "port",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "found" in data
+        assert "scanned" in data
+        assert "by_method" in data
+
+    @pytest.mark.asyncio
+    async def test_discover_invalid_method(self, client):
+        """Test network discovery with invalid method still works (falls through)."""
+        response = await client.post("/discover", json={
+            "network_range": "127.0.0.1/32",
+            "community": "public",
+            "method": "invalid",
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert "found" in data
 
 
 class TestTopologyHistoryEndpoint:

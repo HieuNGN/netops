@@ -41,6 +41,7 @@ devices_table = Table(
     Column("community", String, default="public"),
     Column("status", String, default="unknown"),
     Column("sys_descr", Text),
+    Column("discovery_method", String, default="manual"),
     Column("last_polled", String),
     Column("created", DateTime, server_default=func.now()),
     Column("updated", DateTime, server_default=func.now(), onupdate=func.now()),
@@ -172,10 +173,14 @@ class AsyncPostgresClient:
                     community TEXT DEFAULT 'public',
                     status TEXT DEFAULT 'unknown',
                     sys_descr TEXT,
+                    discovery_method TEXT DEFAULT 'manual',
                     last_polled TEXT,
                     created TIMESTAMPTZ DEFAULT NOW(),
                     updated TIMESTAMPTZ DEFAULT NOW()
                 )
+            """)
+            await conn.execute("""
+                ALTER TABLE devices ADD COLUMN IF NOT EXISTS discovery_method TEXT DEFAULT 'manual'
             """)
 
             await conn.execute("""
@@ -282,7 +287,7 @@ class AsyncPostgresClient:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_check_results_check_id ON check_results(check_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_check_results_checked_at ON check_results(checked_at)")
 
-            -- Topology change history for auditing and trend analysis
+            # Topology change history for auditing and trend analysis
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS topology_history (
                     id SERIAL PRIMARY KEY,
@@ -319,13 +324,14 @@ class AsyncPostgresClient:
         async with self._get_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, last_polled)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (ip_address) DO UPDATE SET
                     name = EXCLUDED.name,
                     community = EXCLUDED.community,
                     status = EXCLUDED.status,
                     sys_descr = EXCLUDED.sys_descr,
+                    discovery_method = EXCLUDED.discovery_method,
                     last_polled = EXCLUDED.last_polled,
                     updated = NOW()
                 """,
@@ -335,6 +341,7 @@ class AsyncPostgresClient:
                 data.get("community", "public"),
                 data.get("status", "unknown"),
                 data.get("sys_descr", ""),
+                data.get("discovery_method", "manual"),
                 data.get("last_polled"),
             )
         return await self.get_device(device_id)
@@ -345,6 +352,7 @@ class AsyncPostgresClient:
         num_fields = len(data)
         param1 = f"${num_fields + 1}"
         param2 = f"${num_fields + 2}"
+        values = list(data.values()) + [device_id, device_id]
 
         async with self._get_connection() as conn:
             await conn.execute(

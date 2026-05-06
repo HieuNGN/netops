@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { devicesApi } from '../api';
-import type { Device } from '../api';
+import type { Device, DiscoveryResult } from '../api';
 
 export function useDevices() {
   const queryClient = useQueryClient();
@@ -36,6 +36,14 @@ export function useDevices() {
     },
   });
 
+  const discoverMutation = useMutation({
+    mutationFn: (data: { network_range: string; community?: string; method?: string }) =>
+      devicesApi.discover(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    },
+  });
+
   return {
     devices: devices || [],
     isLoading,
@@ -43,5 +51,7 @@ export function useDevices() {
     createDevice: createMutation.mutateAsync,
     updateDevice: updateMutation.mutateAsync,
     deleteDevice: deleteMutation.mutateAsync,
+    discoverNetwork: discoverMutation.mutateAsync,
+    isDiscovering: discoverMutation.isPending,
   };
 }

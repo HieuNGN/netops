@@ -1,10 +1,31 @@
-"""Network device discovery - scans IP ranges for SNMP-responsive devices."""
+"""Network device discovery - scans IP ranges for responsive devices via SNMP, ping, or TCP ports."""
 
 import asyncio
+import platform
 import socket
 from typing import Any, Optional
 
 from .spike_snmp import get_sys_descr
+
+# Common ports to scan for non-SNMP discovery
+COMMON_PORTS = [22, 80, 443, 445, 3389, 8291, 8728, 8080, 53, 21, 23, 161, 162]
+
+# Port-to-service mapping for human-readable descriptions
+PORT_SERVICES = {
+    22: "SSH",
+    80: "HTTP",
+    443: "HTTPS",
+    445: "SMB",
+    3389: "RDP",
+    8291: "WinBox",
+    8728: "RouterOS API",
+    8080: "HTTP-Alt",
+    53: "DNS",
+    21: "FTP",
+    23: "Telnet",
+    161: "SNMP",
+    162: "SNMP-Trap",
+}
 
 
 async def discover_devices(
@@ -12,18 +33,20 @@ async def discover_devices(
     community: str = "public",
     timeout: float = 1.0,
     max_concurrent: int = 50,
-) -> list[dict[str, str]]:
+    method: str = "all",
+) -> list[dict[str, Any]]:
     """
-    Discover SNMP-responsive devices in a network range.
+    Discover responsive devices in a network range.
 
     Args:
         network_range: CIDR notation (e.g., "192.168.1.0/24") or IP range
-        community: SNMP community string
+        community: SNMP community string (used when method includes snmp)
         timeout: Timeout per host in seconds
         max_concurrent: Maximum concurrent probes
+        method: Discovery method - "snmp", "ping", "port", or "all"
 
     Returns:
-        List of discovered devices with ip_address, sys_descr fields
+        List of discovered devices with ip_address, sys_descr, discovery_method, open_ports
     """
     import ipaddress
 
@@ -31,16 +54,10 @@ async def discover_devices(
     try:
         network = ipaddress.ip_network(network_range, strict=False)
     except ValueError:
-        # Try parsing as simple range (e.g., "192.168.1.1-100")
-        return await _discover_range(network_range, community, timeout, max_concurrent)
+        return await _discover_range(network_range, community, timeout, max_concurrent, method)
 
-    # Generate host list (exclude network and broadcast addresses)
-    hosts = [
-        str(host)
-        for host in network.hosts()
-    ]
-
-    return await _scan_hosts(hosts, community, timeout, max_concurrent)
+    hosts = [str(host) for host in network.hosts()]
+    return await _scan_hosts(hosts, community, timeout, max_concurrent, method)
 
 
 async def _discover_range(
@@ -48,7 +65,8 @@ async def _discover_range(
     community: str,
     timeout: float,
     max_concurrent: int,
-) -> list[dict[str, str]]:
+    method: str,
+) -> list[dict[str, Any]]:
     """Discover devices in a simple IP range like 192.168.1.1-100."""
     parts = range_str.split("-")
     if len(parts) != 2:
@@ -63,7 +81,7 @@ async def _discover_range(
     end = int(parts[1])
 
     hosts = [f"{base_prefix}.{i}" for i in range(start, end + 1)]
-    return await _scan_hosts(hosts, community, timeout, max_concurrent)
+    return await _scan_hosts(hosts, community, timeout, max_concurrent, method)
 
 
 async def _scan_hosts(
@@ -71,19 +89,19 @@ async def _scan_hosts(
     community: str,
     timeout: float,
     max_concurrent: int,
-) -> list[dict[str, str]]:
-    """Scan a list of hosts for SNMP responsiveness."""
+    method: str,
+) -> list[dict[str, Any]]:
+    """Scan a list of hosts using the specified discovery method."""
     semaphore = asyncio.Semaphore(max_concurrent)
     results = []
 
-    async def scan_host(host: str) -> Optional[dict[str, str]]:
+    async def scan_host(host: str) -> Optional[dict[str, Any]]:
         async with semaphore:
-            device = await _probe_host(host, community, timeout)
+            device = await _probe_host(host, community, timeout, method)
             if device:
                 results.append(device)
             return device
 
-    # Use asyncio.gather with return_exceptions to handle failures
     await asyncio.gather(
         *[scan_host(host) for host in hosts],
         return_exceptions=True
@@ -93,28 +111,76 @@ async def _scan_hosts(
 
 
 async def _probe_host(
-    host: str, community: str, timeout: float
-) -> Optional[dict[str, str]]:
-    """Probe a single host for SNMP response."""
+    host: str, community: str, timeout: float, method: str
+) -> Optional[dict[str, Any]]:
+    """Probe a single host using the requested discovery method(s)."""
+    snmp_result = None
+    ping_alive = False
+    open_ports: list[int] = []
 
-    # First check if port 161 is open (quick TCP check)
+    # SNMP discovery
+    if method in ("snmp", "all"):
+        snmp_result = await _probe_snmp(host, community, timeout)
+        if snmp_result:
+            snmp_result["discovery_method"] = "snmp"
+            return snmp_result
+
+    # ICMP ping discovery
+    if method in ("ping", "all"):
+        ping_alive = await _probe_ping(host, timeout)
+
+    # TCP port scan discovery
+    if method in ("port", "all"):
+        open_ports = await _probe_ports(host, timeout)
+
+    # If ping or ports found something, create a non-SNMP device record
+    if ping_alive or open_ports:
+        parts = []
+        if ping_alive:
+            parts.append("Host alive (ICMP ping)")
+        if open_ports:
+            services = ", ".join(
+                f"{p} ({PORT_SERVICES.get(p, 'unknown')})" for p in open_ports[:6]
+            )
+            parts.append(f"Open ports: {services}")
+            if len(open_ports) > 6:
+                parts.append(f"...and {len(open_ports) - 6} more")
+
+        return {
+            "ip_address": host,
+            "sys_descr": "; ".join(parts),
+            "community": community,
+            "discovery_method": "ping" if ping_alive and not open_ports else "port",
+            "open_ports": open_ports,
+            "status": "discovered",
+        }
+
+    return None
+
+
+async def _probe_snmp(
+    host: str, community: str, timeout: float
+) -> Optional[dict[str, Any]]:
+    """Probe a single host via SNMP."""
+    # Quick TCP check on port 161 before attempting SNMP
     port_open = await _check_port(host, 161, timeout)
     if not port_open:
         return None
 
-    # Then try SNMP query
     loop = asyncio.get_event_loop()
     try:
         sys_descr = await asyncio.wait_for(
             loop.run_in_executor(None, get_sys_descr, host, community),
-            timeout=timeout * 2,  # SNMP query might take longer
+            timeout=timeout * 2,
         )
-
         if sys_descr:
             return {
                 "ip_address": host,
                 "sys_descr": sys_descr,
                 "community": community,
+                "discovery_method": "snmp",
+                "open_ports": [161],
+                "status": "discovered",
             }
     except asyncio.TimeoutError:
         pass
@@ -124,36 +190,61 @@ async def _probe_host(
     return None
 
 
+async def _probe_ping(host: str, timeout: float) -> bool:
+    """Check if a host responds to ICMP ping."""
+    system = platform.system().lower()
+    if system == "windows":
+        ping_cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host]
+    else:
+        ping_cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *ping_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(
+            process.communicate(),
+            timeout=timeout + 3,
+        )
+        return process.returncode == 0
+    except (asyncio.TimeoutError, FileNotFoundError, OSError):
+        return False
+
+
+async def _probe_ports(host: str, timeout: float) -> list[int]:
+    """Scan common TCP ports and return a list of open ports."""
+    semaphore = asyncio.Semaphore(10)  # Limit concurrent port scans per host
+    open_ports: list[int] = []
+
+    async def check_port(port: int) -> None:
+        async with semaphore:
+            if await _check_port(host, port, timeout):
+                open_ports.append(port)
+
+    await asyncio.gather(
+        *[check_port(port) for port in COMMON_PORTS],
+        return_exceptions=True,
+    )
+
+    return sorted(open_ports)
+
+
 async def _check_port(
     host: str, port: int, timeout: float
 ) -> bool:
     """Check if a TCP port is open on the host."""
-
-    async def _connect() -> bool:
-        try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=timeout,
-            )
-            writer.close()
-            await writer.wait_closed()
-            return True
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
-            return False
-
-    return await _connect()
-
-
-def discover_devices_sync(
-    network_range: str,
-    community: str = "public",
-    timeout: float = 1.0,
-    max_concurrent: int = 50,
-) -> list[dict[str, str]]:
-    """Synchronous wrapper for discover_devices."""
-    return asyncio.run(
-        discover_devices(network_range, community, timeout, max_concurrent)
-    )
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=timeout,
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        return False
 
 
 async def add_discovered_devices(
@@ -162,29 +253,48 @@ async def add_discovered_devices(
     community: str = "public",
     timeout: float = 2.0,
     max_concurrent: int = 50,
-) -> dict[str, int]:
+    method: str = "all",
+) -> dict[str, Any]:
     """
     Discover devices and add them to the database.
 
     Returns:
-        Dict with 'found' and 'added' counts
+        Dict with 'found', 'added', 'scanned', and 'by_method' counts
     """
+    import ipaddress
+
+    # Count how many hosts we scanned
+    try:
+        network = ipaddress.ip_network(network_range, strict=False)
+        scanned = network.num_addresses - 2  # Exclude network/broadcast
+    except ValueError:
+        scanned = 0  # Simple range; could count but not critical
+
     discovered = await discover_devices(
-        network_range, community, timeout, max_concurrent
+        network_range, community, timeout, max_concurrent, method
     )
 
-    stats = {"found": len(discovered), "added": 0}
+    stats = {
+        "scanned": scanned,
+        "found": len(discovered),
+        "added": 0,
+        "by_method": {"snmp": 0, "ping": 0, "port": 0},
+    }
 
     for device in discovered:
+        method_used = device.get("discovery_method", "unknown")
+        stats["by_method"][method_used] = stats["by_method"].get(method_used, 0) + 1
+
         # Check if device already exists
-        existing = db_client.get_device(device["ip_address"])
+        existing = await db_client.get_device(device["ip_address"])
         if not existing:
-            db_client.create_device(
+            await db_client.create_device(
                 {
                     "ip_address": device["ip_address"],
                     "community": device.get("community", community),
                     "sys_descr": device.get("sys_descr", ""),
-                    "status": "unknown",
+                    "status": device.get("status", "discovered"),
+                    "discovery_method": method_used,
                 }
             )
             stats["added"] += 1
@@ -192,3 +302,14 @@ async def add_discovered_devices(
     return stats
 
 
+def discover_devices_sync(
+    network_range: str,
+    community: str = "public",
+    timeout: float = 1.0,
+    max_concurrent: int = 50,
+    method: str = "all",
+) -> list[dict[str, Any]]:
+    """Synchronous wrapper for discover_devices."""
+    return asyncio.run(
+        discover_devices(network_range, community, timeout, max_concurrent, method)
+    )

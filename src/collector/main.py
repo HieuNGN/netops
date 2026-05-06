@@ -138,6 +138,7 @@ class AlertConfigCreate(BaseModel):
 class DiscoveryRequest(BaseModel):
     network_range: str
     community: str = "public"
+    method: str = "all"
 
 
 app = FastAPI(
@@ -404,6 +405,7 @@ async def discover_network(request: DiscoveryRequest):
         request.community,
         timeout=2.0,
         max_concurrent=50,
+        method=request.method,
     )
 
     return stats

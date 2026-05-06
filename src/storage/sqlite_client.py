@@ -42,6 +42,7 @@ class AsyncSQLiteClient:
                 community TEXT DEFAULT 'public',
                 status TEXT DEFAULT 'unknown',
                 sys_descr TEXT,
+                discovery_method TEXT DEFAULT 'manual',
                 last_polled TEXT,
                 created TEXT DEFAULT (datetime('now')),
                 updated TEXT DEFAULT (datetime('now'))
@@ -149,6 +150,13 @@ class AsyncSQLiteClient:
             CREATE INDEX IF NOT EXISTS idx_topology_history_event ON topology_history(event_type);
             CREATE INDEX IF NOT EXISTS idx_topology_history_recorded_at ON topology_history(recorded_at);
         """)
+        # Migrate existing tables: add discovery_method if missing
+        try:
+            await self._db.execute(
+                "ALTER TABLE devices ADD COLUMN discovery_method TEXT DEFAULT 'manual'"
+            )
+        except Exception:
+            pass  # Column already exists
         await self._db.commit()
 
     async def close(self):
@@ -187,12 +195,13 @@ class AsyncSQLiteClient:
         device_id = data.get("id") or str(uuid.uuid4())
         await self._db.execute(
             """
-            INSERT INTO devices (id, name, ip_address, community, status, sys_descr, last_polled)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (device_id, data.get("name", ""), data["ip_address"],
              data.get("community", "public"), data.get("status", "unknown"),
-             data.get("sys_descr", ""), data.get("last_polled"))
+             data.get("sys_descr", ""), data.get("discovery_method", "manual"),
+             data.get("last_polled"))
         )
         await self._db.commit()
         return await self.get_device(device_id)
