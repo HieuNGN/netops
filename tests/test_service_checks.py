@@ -203,12 +203,11 @@ class TestSSLCheckExecutor:
         assert "Host is required" in error
 
     def test_missing_port(self):
-        """Test validation fails without port."""
+        """Test validation passes without port (defaults to 443)."""
         executor = SSLCheckExecutor()
         config = {"host": "example.com"}
         valid, error = executor.validate_config(config)
-        assert valid is False
-        assert "Port is required" in error
+        assert valid is True  # Port defaults to 443
 
     def test_valid_min_days(self):
         """Test validation with valid min_days."""
@@ -217,13 +216,13 @@ class TestSSLCheckExecutor:
         valid, error = executor.validate_config(config)
         assert valid is True
 
-    def test_invalid_min_days(self):
-        """Test validation fails with invalid min_days."""
+    def test_invalid_warning_days(self):
+        """Test validation fails with invalid warning_days."""
         executor = SSLCheckExecutor()
-        config = {"host": "example.com", "port": 443, "min_days": -1}
+        config = {"host": "example.com", "port": 443, "warning_days": -1}
         valid, error = executor.validate_config(config)
         assert valid is False
-        assert "min_days must be positive" in error
+        assert "Warning days must be a positive integer" in error
 
     def test_check_type_property(self):
         """Test check_type property returns 'ssl'."""
