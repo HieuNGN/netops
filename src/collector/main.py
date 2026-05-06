@@ -97,10 +97,14 @@ async def on_check_result(result: Any):
 
 async def on_topology_change(changes: dict[str, int], topology: dict[str, list]):
     """Handle topology changes - notify subscribers and dispatch alerts."""
-    # Notify SSE subscribers
-    message = json.dumps({"type": "topology_change", "changes": changes, "topology": topology})
-    for queue in topology_subscribers:
-        await queue.put(message)
+    # Notify SSE subscribers (only serialize if there are subscribers)
+    if topology_subscribers:
+        message = json.dumps({"type": "topology_change", "changes": changes, "topology": topology})
+        # Fan out to all subscribers concurrently
+        await asyncio.gather(
+            *[queue.put(message) for queue in topology_subscribers],
+            return_exceptions=True,
+        )
 
     # Dispatch alerts
     if alert_service:
@@ -198,8 +202,12 @@ async def get_topology():
 
 
 @app.get("/topology/stream")
-async def stream_topology():
-    """Stream topology updates via Server-Sent Events."""
+async def stream_topology(delta: bool = False):
+    """Stream topology updates via Server-Sent Events.
+
+    Args:
+        delta: If True, stream only change summaries without full topology payload.
+    """
 
     async def generate():
         queue: asyncio.Queue = asyncio.Queue()
@@ -212,8 +220,17 @@ async def stream_topology():
 
             # Stream updates
             while True:
-                message = await queue.get()
-                yield f"data: {message}\n\n"
+                raw_message = await queue.get()
+                if delta:
+                    # Strip full topology to reduce bandwidth for lightweight consumers
+                    try:
+                        payload = json.loads(raw_message)
+                        if payload.get("type") == "topology_change":
+                            payload.pop("topology", None)
+                            raw_message = json.dumps(payload)
+                    except Exception:
+                        pass
+                yield f"data: {raw_message}\n\n"
         except asyncio.CancelledError:
             raise
         finally:

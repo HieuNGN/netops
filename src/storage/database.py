@@ -435,9 +435,14 @@ class AsyncPostgresClient:
             removed_ids = existing_node_ids - new_node_ids
             changes["nodes_removed"] = len(removed_ids)
 
-            # Upsert nodes
-            for node in nodes:
-                await conn.execute(
+            # Upsert nodes in batch
+            if nodes:
+                node_values = [
+                    (n["id"], n.get("device_id"), n.get("label", ""),
+                     n.get("node_type", "device"), n.get("status", "unknown"))
+                    for n in nodes
+                ]
+                await conn.executemany(
                     """
                     INSERT INTO topology_nodes (id, device_id, label, node_type, status)
                     VALUES ($1, $2, $3, $4, $5)
@@ -448,14 +453,9 @@ class AsyncPostgresClient:
                         status = EXCLUDED.status,
                         updated = NOW()
                     """,
-                    node["id"],
-                    node.get("device_id"),
-                    node.get("label", ""),
-                    node.get("node_type", "device"),
-                    node.get("status", "unknown"),
+                    node_values,
                 )
-                if node["id"] not in existing_node_ids:
-                    changes["nodes_added"] += 1
+            changes["nodes_added"] = len(new_node_ids - existing_node_ids)
 
             # Delete removed nodes
             if removed_ids:
@@ -484,9 +484,15 @@ class AsyncPostgresClient:
             removed_link_ids = existing_link_ids - new_link_ids
             changes["links_removed"] = len(removed_link_ids)
 
-            # Upsert links
-            for link in links:
-                await conn.execute(
+            # Upsert links in batch
+            if links:
+                link_values = [
+                    (link["id"], link["source"], link["target"],
+                     link.get("source_port", ""), link.get("target_port", ""),
+                     link.get("status", "active"))
+                    for link in links
+                ]
+                await conn.executemany(
                     """
                     INSERT INTO topology_links (id, source_id, target_id, source_port, target_port, status)
                     VALUES ($1, $2, $3, $4, $5, $6)
@@ -498,15 +504,9 @@ class AsyncPostgresClient:
                         status = EXCLUDED.status,
                         updated = NOW()
                     """,
-                    link["id"],
-                    link["source"],
-                    link["target"],
-                    link.get("source_port", ""),
-                    link.get("target_port", ""),
-                    link.get("status", "active"),
+                    link_values,
                 )
-                if link["id"] not in existing_link_ids:
-                    changes["links_added"] += 1
+            changes["links_added"] = len(new_link_ids - existing_link_ids)
 
             # Delete removed links
             if removed_link_ids:
@@ -517,39 +517,43 @@ class AsyncPostgresClient:
 
             # Record topology changes in history
             if any(changes.values()):
-                await self._record_topology_changes(conn, changes, nodes, links)
+                added_nodes = [n for n in nodes if n["id"] in (new_node_ids - existing_node_ids)]
+                added_links = [l for l in links if l["id"] in (new_link_ids - existing_link_ids)]
+                await self._record_topology_changes(conn, changes, added_nodes, added_links)
 
             return changes
 
     async def _record_topology_changes(
-        self, conn, changes: dict, nodes: list, links: list
+        self, conn, changes: dict, added_nodes: list, added_links: list
     ):
         """Record topology changes in history table for auditing."""
         event_type = "topology_change"
-        if changes["nodes_added"] > 0:
-            for node in nodes:
-                await conn.execute(
-                    """
-                    INSERT INTO topology_history (event_type, node_id, new_status, details)
-                    VALUES ($1, $2, $3, $4)
-                    """,
-                    event_type,
-                    node["id"],
-                    node.get("status", "unknown"),
-                    json.dumps({"action": "added", "type": "node"}),
-                )
-        if changes["links_added"] > 0:
-            for link in links:
-                await conn.execute(
-                    """
-                    INSERT INTO topology_history (event_type, link_id, new_status, details)
-                    VALUES ($1, $2, $3, $4)
-                    """,
-                    event_type,
-                    link.get("id"),
-                    link.get("status", "active"),
-                    json.dumps({"action": "added", "type": "link"}),
-                )
+        if added_nodes:
+            node_values = [
+                (event_type, n["id"], n.get("status", "unknown"),
+                 json.dumps({"action": "added", "type": "node"}))
+                for n in added_nodes
+            ]
+            await conn.executemany(
+                """
+                INSERT INTO topology_history (event_type, node_id, new_status, details)
+                VALUES ($1, $2, $3, $4)
+                """,
+                node_values,
+            )
+        if added_links:
+            link_values = [
+                (event_type, l.get("id"), l.get("status", "active"),
+                 json.dumps({"action": "added", "type": "link"}))
+                for l in added_links
+            ]
+            await conn.executemany(
+                """
+                INSERT INTO topology_history (event_type, link_id, new_status, details)
+                VALUES ($1, $2, $3, $4)
+                """,
+                link_values,
+            )
         if changes["nodes_removed"] > 0:
             await conn.execute(
                 """
