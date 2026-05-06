@@ -249,3 +249,5 @@ export function Topology() {
     </div>
   );
 }
+
+export default Topology;

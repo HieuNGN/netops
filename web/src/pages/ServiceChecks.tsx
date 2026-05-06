@@ -329,3 +329,5 @@ export function ServiceChecks() {
     </div>
   );
 }
+
+export default ServiceChecks;
