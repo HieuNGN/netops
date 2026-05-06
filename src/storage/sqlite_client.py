@@ -481,9 +481,9 @@ class AsyncSQLiteClient:
 
     async def delete_maintenance_window(self, window_id: str) -> bool:
         """Delete a maintenance window."""
-        await self._db.execute("DELETE FROM maintenance_windows WHERE id = ?", (window_id,))
+        cursor = await self._db.execute("DELETE FROM maintenance_windows WHERE id = ?", (window_id,))
         await self._db.commit()
-        return True
+        return cursor.rowcount == 1
 
     async def is_in_maintenance_window(self) -> bool:
         """Check if current time falls within any active maintenance window."""

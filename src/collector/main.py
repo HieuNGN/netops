@@ -573,7 +573,7 @@ async def create_maintenance_window(window: MaintenanceWindowCreate):
         datetime.fromisoformat(window.end_time.replace("Z", "+00:00"))
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid datetime format. Use ISO 8601.")
-    data = await db_client.create_maintenance_window(window.dict())
+    data = await db_client.create_maintenance_window(window.model_dump())
     return {"status": "created", "window": data}
 
 

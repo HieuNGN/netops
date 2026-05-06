@@ -475,3 +475,115 @@ class TestMetricsEndpoint:
         # Check for expected metrics
         content = response.text
         assert "netops" in content.lower()
+
+
+class TestMaintenanceWindowEndpoints:
+    """Tests for maintenance window endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_list_maintenance_windows_empty(self, client):
+        """Test listing maintenance windows when empty."""
+        response = await client.get("/maintenance-windows")
+        assert response.status_code == 200
+        data = response.json()
+        assert "windows" in data
+        assert isinstance(data["windows"], list)
+
+    @pytest.mark.asyncio
+    async def test_create_and_delete_maintenance_window(self, client):
+        """Test creating and deleting a maintenance window."""
+        from datetime import datetime, timedelta, timezone
+
+        start = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        end = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+
+        create_response = await client.post("/maintenance-windows", json={
+            "name": "Test Maintenance",
+            "start_time": start,
+            "end_time": end,
+            "description": "Test window",
+        })
+        assert create_response.status_code == 200
+        data = create_response.json()
+        assert data["status"] == "created"
+        window_id = data["window"]["id"]
+
+        # Verify it appears in the list
+        list_response = await client.get("/maintenance-windows")
+        assert list_response.status_code == 200
+        windows = list_response.json()["windows"]
+        assert any(w["id"] == window_id for w in windows)
+
+        # Delete it
+        delete_response = await client.delete(f"/maintenance-windows/{window_id}")
+        assert delete_response.status_code == 200
+        assert delete_response.json()["status"] == "deleted"
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_window(self, client):
+        """Test deleting a nonexistent maintenance window returns 404."""
+        response = await client.delete("/maintenance-windows/nonexistent-id")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_create_window_invalid_datetime(self, client):
+        """Test creating a window with invalid datetime returns 400."""
+        response = await client.post("/maintenance-windows", json={
+            "name": "Bad Window",
+            "start_time": "not-a-datetime",
+            "end_time": "2026-05-07T12:00:00",
+        })
+        assert response.status_code == 400
+
+
+class TestTopologyHistoryEndpoint:
+    """Tests for topology history endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_topology_history_empty(self, client):
+        """Test getting topology history when empty."""
+        response = await client.get("/topology/history")
+        assert response.status_code == 200
+        data = response.json()
+        assert "events" in data
+        assert isinstance(data["events"], list)
+
+    @pytest.mark.asyncio
+    async def test_get_topology_history_with_limit(self, client):
+        """Test getting topology history with limit param."""
+        response = await client.get("/topology/history?limit=10")
+        assert response.status_code == 200
+        data = response.json()
+        assert "events" in data
+        assert isinstance(data["events"], list)
+
+
+class TestPaginationEndpoints:
+    """Tests for pagination on list endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_devices_pagination(self, client):
+        """Test devices endpoint accepts limit and offset."""
+        response = await client.get("/devices?limit=5")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+        response = await client.get("/devices?limit=5&offset=0")
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_alerts_pagination(self, client):
+        """Test alerts endpoint accepts limit and offset."""
+        response = await client.get("/alerts?limit=5")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+
+    @pytest.mark.asyncio
+    async def test_checks_pagination(self, client):
+        """Test checks endpoint accepts limit and offset."""
+        response = await client.get("/checks?limit=5")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
