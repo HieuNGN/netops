@@ -314,12 +314,12 @@ async def simulate_topology():
 
 # Device endpoints
 @app.get("/devices")
-async def list_devices():
-    """List all configured devices."""
+async def list_devices(limit: Optional[int] = None, offset: Optional[int] = None):
+    """List configured devices with optional pagination."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    return await db_client.list_devices()
+    return await db_client.list_devices(limit=limit, offset=offset)
 
 
 @app.get("/devices/{device_id}")
@@ -423,12 +423,12 @@ def get_poller_stats():
 
 # Alert endpoints
 @app.get("/alerts")
-async def list_alerts():
-    """List all alert configurations."""
+async def list_alerts(limit: Optional[int] = None, offset: Optional[int] = None):
+    """List alert configurations with optional pagination."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    return await db_client.list_alert_configs()
+    return await db_client.list_alert_configs(limit=limit, offset=offset)
 
 
 @app.post("/alerts")
@@ -629,12 +629,12 @@ class ServiceCheckUpdate(BaseModel):
 
 
 @app.get("/checks")
-async def list_service_checks():
-    """List all service checks."""
+async def list_service_checks(limit: Optional[int] = None, offset: Optional[int] = None):
+    """List service checks with optional pagination."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    return await db_client.list_service_checks()
+    return await db_client.list_service_checks(limit=limit, offset=offset)
 
 
 @app.get("/checks/{check_id}")

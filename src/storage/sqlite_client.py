@@ -185,9 +185,19 @@ class AsyncSQLiteClient:
         return [dict(row) for row in rows]
 
     # Device methods
-    async def list_devices(self) -> list[dict[str, Any]]:
-        """List all devices."""
-        cursor = await self._db.execute("SELECT * FROM devices ORDER BY created DESC")
+    async def list_devices(
+        self, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """List devices with optional pagination."""
+        query = "SELECT * FROM devices ORDER BY created DESC"
+        params: list[Any] = []
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        if offset is not None:
+            query += " OFFSET ?"
+            params.append(offset)
+        cursor = await self._db.execute(query, tuple(params) if params else ())
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -406,9 +416,19 @@ class AsyncSQLiteClient:
         await self._db.commit()
 
     # Alert methods
-    async def list_alert_configs(self) -> list[dict[str, Any]]:
-        """List all alert configurations."""
-        cursor = await self._db.execute("SELECT * FROM alert_configs WHERE enabled = 1")
+    async def list_alert_configs(
+        self, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """List alert configurations with optional pagination."""
+        query = "SELECT * FROM alert_configs WHERE enabled = 1"
+        params: list[Any] = []
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        if offset is not None:
+            query += " OFFSET ?"
+            params.append(offset)
+        cursor = await self._db.execute(query, tuple(params) if params else ())
         rows = await cursor.fetchall()
         result = []
         for row in rows:
@@ -477,9 +497,19 @@ class AsyncSQLiteClient:
         return row is not None
 
     # Service check methods
-    async def list_service_checks(self) -> list[dict[str, Any]]:
-        """List all service checks."""
-        cursor = await self._db.execute("SELECT * FROM service_checks ORDER BY created DESC")
+    async def list_service_checks(
+        self, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """List service checks with optional pagination."""
+        query = "SELECT * FROM service_checks ORDER BY created DESC"
+        params: list[Any] = []
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        if offset is not None:
+            query += " OFFSET ?"
+            params.append(offset)
+        cursor = await self._db.execute(query, tuple(params) if params else ())
         rows = await cursor.fetchall()
         result = []
         for row in rows:

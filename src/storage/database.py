@@ -327,10 +327,20 @@ class AsyncPostgresClient:
             """)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time)")
 
-    async def list_devices(self) -> list[dict[str, Any]]:
-        """List all devices."""
+    async def list_devices(
+        self, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """List devices with optional pagination."""
+        query = "SELECT * FROM devices ORDER BY created DESC"
+        params: list[Any] = []
+        if limit is not None:
+            query += f" LIMIT ${len(params) + 1}"
+            params.append(limit)
+        if offset is not None:
+            query += f" OFFSET ${len(params) + 1}"
+            params.append(offset)
         async with self._get_connection() as conn:
-            rows = await conn.fetch("SELECT * FROM devices ORDER BY created DESC")
+            rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows]
 
     async def get_device(self, device_id: str) -> Optional[dict[str, Any]]:
@@ -575,10 +585,20 @@ class AsyncPostgresClient:
                 error,
             )
 
-    async def list_alert_configs(self) -> list[dict[str, Any]]:
-        """List all alert configurations."""
+    async def list_alert_configs(
+        self, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """List alert configurations with optional pagination."""
+        query = "SELECT * FROM alert_configs WHERE enabled = 1"
+        params: list[Any] = []
+        if limit is not None:
+            query += f" LIMIT ${len(params) + 1}"
+            params.append(limit)
+        if offset is not None:
+            query += f" OFFSET ${len(params) + 1}"
+            params.append(offset)
         async with self._get_connection() as conn:
-            rows = await conn.fetch("SELECT * FROM alert_configs WHERE enabled = 1")
+            rows = await conn.fetch(query, *params)
             result = []
             for row in rows:
                 d = dict(row)
@@ -669,10 +689,20 @@ class AsyncPostgresClient:
 
     # Service check methods
 
-    async def list_service_checks(self) -> list[dict[str, Any]]:
-        """List all service checks."""
+    async def list_service_checks(
+        self, limit: Optional[int] = None, offset: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """List service checks with optional pagination."""
+        query = "SELECT * FROM service_checks ORDER BY created DESC"
+        params: list[Any] = []
+        if limit is not None:
+            query += f" LIMIT ${len(params) + 1}"
+            params.append(limit)
+        if offset is not None:
+            query += f" OFFSET ${len(params) + 1}"
+            params.append(offset)
         async with self._get_connection() as conn:
-            rows = await conn.fetch("SELECT * FROM service_checks ORDER BY created DESC")
+            rows = await conn.fetch(query, *params)
             result = []
             for row in rows:
                 d = dict(row)
