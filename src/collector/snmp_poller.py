@@ -129,10 +129,8 @@ class SNMPPoller:
             current_topology["nodes"], current_topology["links"]
         )
 
-        # Trigger change handler if there are changes
-        if self._on_topology_change and any(
-            v > 0 for v in changes.values() if isinstance(v, int)
-        ):
+        # Trigger change handler every cycle so status changes and auto-resolve run
+        if self._on_topology_change:
             await self._on_topology_change(changes, current_topology)
 
     async def _poll_device(self, device: dict[str, Any]) -> PollResult:

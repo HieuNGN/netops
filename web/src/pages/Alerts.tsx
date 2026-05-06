@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Plus, Trash2, Send, Clock, Bell } from 'lucide-react';
+import { Plus, Trash2, Send, Clock, Bell, Check, X } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { alertsApi, maintenanceWindowsApi } from '../api';
+import { useActiveAlerts } from '../hooks/useActiveAlerts';
 import { useToast } from '../components/ui';
 
 const ALERT_TYPES = [
@@ -23,7 +24,7 @@ const CHANNELS = [
 
 export function Alerts() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'rules' | 'windows'>('rules');
+  const [activeTab, setActiveTab] = useState<'rules' | 'active' | 'windows'>('active');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAlert, setNewAlert] = useState({
     name: '',
@@ -55,6 +56,13 @@ export function Alerts() {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
     },
   });
+
+  const {
+    alerts: activeAlerts,
+    isLoading: activeAlertsLoading,
+    acknowledge,
+    resolve,
+  } = useActiveAlerts();
 
   const toast = useToast();
 
@@ -168,6 +176,22 @@ export function Alerts() {
       {/* Tabs */}
       <div className="mb-6 border-b border-[#e0e0e0] dark:border-[#393939]">
         <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'active'
+                ? 'border-[#da1e28] text-[#da1e28]'
+                : 'border-transparent text-[#525252] dark:text-[#a8a8a8] hover:text-[#161616] dark:hover:text-white'
+            }`}
+          >
+            <Bell className="h-4 w-4" />
+            <span>Active Alerts</span>
+            {activeAlerts.length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 bg-[#da1e28] text-white text-xs rounded-sm font-medium">
+                {activeAlerts.length}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setActiveTab('rules')}
             className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
@@ -323,6 +347,79 @@ export function Alerts() {
             </div>
           </div>
         </>
+      )}
+
+      {activeTab === 'active' && (
+        <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] overflow-hidden">
+          <div className="px-6 py-4 border-b border-[#e0e0e0] dark:border-[#393939] flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-[#161616] dark:text-white">Active Alerts</h2>
+            <span className="text-sm text-[#525252] dark:text-[#a8a8a8]">Refreshes every 15s</span>
+          </div>
+          <div className="divide-y divide-[#e0e0e0] dark:divide-[#393939]">
+            {activeAlertsLoading ? (
+              <div className="px-6 py-8 text-center text-[#525252] dark:text-[#a8a8a8]">Loading alerts...</div>
+            ) : activeAlerts.length === 0 ? (
+              <div className="px-6 py-8 text-center text-[#525252] dark:text-[#a8a8a8]">
+                No active alerts. All systems clear.
+              </div>
+            ) : (
+              activeAlerts.map((alert) => (
+                <div
+                  key={alert.key}
+                  className={`px-6 py-4 flex items-center justify-between ${
+                    alert.status === 'firing'
+                      ? 'bg-[#fff0f1] dark:bg-[#520408]'
+                      : 'bg-[#fcf4d6] dark:bg-[#483501]'
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    <div className="mt-0.5">
+                      <span
+                        className={`inline-flex px-2 py-0.5 text-xs rounded-sm font-medium ${
+                          alert.severity === 'critical'
+                            ? 'bg-[#da1e28] text-white'
+                            : alert.severity === 'warning'
+                            ? 'bg-[#f1c21b] text-[#161616]'
+                            : 'bg-[#e0e0e0] text-[#161616]'
+                        }`}
+                      >
+                        {alert.severity}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-[#161616] dark:text-white">{alert.title}</p>
+                      <p className="text-xs text-[#525252] dark:text-[#a8a8a8]">{alert.message}</p>
+                      <p className="text-xs text-[#a8a8a8] dark:text-[#525252] mt-0.5">
+                        {alert.status === 'acknowledged' && (
+                          <span className="text-[#b28600] font-medium">Acknowledged · </span>
+                        )}
+                        Fired {new Date(alert.fired_at * 1000).toLocaleTimeString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    {alert.status === 'firing' && (
+                      <button
+                        onClick={() => acknowledge(alert.key)}
+                        className="p-1.5 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
+                        title="Acknowledge"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => resolve(alert.key)}
+                      className="p-1.5 text-[#da1e28] dark:text-[#ff8389] hover:bg-[#fff0f1] dark:hover:bg-[#520408] rounded-sm"
+                      title="Resolve"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
 
       {activeTab === 'windows' && (

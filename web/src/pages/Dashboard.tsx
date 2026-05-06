@@ -1,8 +1,9 @@
-import { Activity, Server, Network, CheckCircle, AlertCircle, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { Activity, Server, Network, CheckCircle, AlertCircle, ArrowUpCircle, ArrowDownCircle, Bell, Check, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTopology } from '../hooks/useTopology';
 import { useDevices } from '../hooks/useDevices';
 import { useChecks } from '../hooks/useChecks';
+import { useActiveAlerts } from '../hooks/useActiveAlerts';
 import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
 function StatCard({ title, value, subtext, icon: Icon, color, trend }: any) {
@@ -42,6 +43,7 @@ export function Dashboard() {
   const { topology } = useTopology();
   const { devices } = useDevices();
   const { checks } = useChecks();
+  const { alerts: activeAlerts, isLoading: alertsLoading, acknowledge, resolve } = useActiveAlerts();
 
   const deviceStats = {
     online: devices.filter((d) => d.status === 'online').length,
@@ -94,6 +96,83 @@ export function Dashboard() {
           color={deviceStats.offline > 0 ? 'bg-[#da1e28]' : 'bg-[#24a148]'}
         />
       </div>
+
+      {/* Active Alerts Banner */}
+      {activeAlerts.length > 0 && (
+        <div className="mb-6 bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-[#161616] dark:text-white flex items-center space-x-2">
+              <Bell className="h-5 w-5 text-[#da1e28]" />
+              <span>Active Alerts</span>
+              <span className="px-2 py-0.5 bg-[#da1e28] text-white text-xs rounded-sm font-medium">
+                {activeAlerts.length}
+              </span>
+            </h2>
+            <Link
+              to="/alerts"
+              className="text-sm text-[#161616] dark:text-[#a8a8a8] hover:text-[#161616] dark:hover:text-[#f4f4f4]"
+            >
+              View all →
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {activeAlerts.map((alert) => (
+              <div
+                key={alert.key}
+                className={`flex items-center justify-between p-3 rounded-sm border ${
+                  alert.status === 'firing'
+                    ? 'bg-[#fff0f1] dark:bg-[#520408] border-[#da1e28] dark:border-[#ff8389]'
+                    : 'bg-[#fcf4d6] dark:bg-[#483501] border-[#b28600]'
+                }`}
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="mt-0.5">
+                    <span
+                      className={`inline-flex px-2 py-0.5 text-xs rounded-sm font-medium ${
+                        alert.severity === 'critical'
+                          ? 'bg-[#da1e28] text-white'
+                          : alert.severity === 'warning'
+                          ? 'bg-[#f1c21b] text-[#161616]'
+                          : 'bg-[#e0e0e0] text-[#161616]'
+                      }`}
+                    >
+                      {alert.severity}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-[#161616] dark:text-white">{alert.title}</p>
+                    <p className="text-xs text-[#525252] dark:text-[#a8a8a8]">{alert.message}</p>
+                    <p className="text-xs text-[#a8a8a8] dark:text-[#525252] mt-0.5">
+                      {alert.status === 'acknowledged' && (
+                        <span className="text-[#b28600] font-medium">Acknowledged · </span>
+                      )}
+                      Fired {new Date(alert.fired_at * 1000).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-1">
+                  {alert.status === 'firing' && (
+                    <button
+                      onClick={() => acknowledge(alert.key)}
+                      className="p-1.5 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
+                      title="Acknowledge"
+                    >
+                      <Check className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => resolve(alert.key)}
+                    className="p-1.5 text-[#da1e28] dark:text-[#ff8389] hover:bg-[#fff0f1] dark:hover:bg-[#520408] rounded-sm"
+                    title="Resolve"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Devices */}

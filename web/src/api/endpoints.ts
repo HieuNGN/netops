@@ -138,6 +138,17 @@ export const checksApi = {
   stats: () => apiClient.get('/checks/stats'),
 };
 
+export interface ActiveAlert {
+  key: string;
+  alert_type: string;
+  target_id: string;
+  severity: string;
+  title: string;
+  message: string;
+  status: 'firing' | 'acknowledged';
+  fired_at: number;
+}
+
 // Alerts API
 export const alertsApi = {
   list: (limit?: number, offset?: number) =>
@@ -153,6 +164,9 @@ export const alertsApi = {
   test: (id: string) => apiClient.post(`/alerts/${id}/test`),
   history: (limit?: number) =>
     apiClient.get('/alerts/history', { params: { limit } }),
+  active: () => apiClient.get<{ alerts: ActiveAlert[] }>('/alerts/active'),
+  acknowledge: (key: string) => apiClient.post(`/alerts/active/${key}/acknowledge`),
+  resolve: (key: string) => apiClient.post(`/alerts/active/${key}/resolve`),
 };
 
 export interface MaintenanceWindow {
