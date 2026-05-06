@@ -638,6 +638,49 @@ class AsyncPostgresClient:
                 return d
             return None
 
+    async def record_alert_history(
+        self, alert_config_id: str, message: str, status: str = "triggered"
+    ):
+        """Record an alert in history."""
+        async with self._get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO alert_history (alert_config_id, message, status)
+                VALUES ($1, $2, $3)
+                """,
+                alert_config_id, message, status,
+            )
+
+    async def get_alert_history(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get recent alert history with alert config details."""
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT ah.*, ac.name as alert_name, ac.channel
+                FROM alert_history ah
+                LEFT JOIN alert_configs ac ON ah.alert_config_id = ac.id
+                ORDER BY ah.triggered_at DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+            return [dict(row) for row in rows]
+
+    async def get_poll_history(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get recent poll history with device details."""
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT ph.*, d.ip_address, d.name
+                FROM poll_history ph
+                LEFT JOIN devices d ON ph.device_id = d.id
+                ORDER BY ph.polled_at DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+            return [dict(row) for row in rows]
+
     async def list_maintenance_windows(self) -> list[dict[str, Any]]:
         """List all maintenance windows ordered by start time."""
         async with self._get_connection() as conn:

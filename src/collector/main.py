@@ -461,19 +461,7 @@ async def get_alert_history(limit: int = 50):
     """Get recent alert history."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
-
-    async with db_client._get_connection() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT ah.*, ac.name as alert_name, ac.channel
-            FROM alert_history ah
-            LEFT JOIN alert_configs ac ON ah.alert_config_id = ac.id
-            ORDER BY ah.triggered_at DESC
-            LIMIT $1
-            """,
-            limit,
-        )
-        return [dict(row) for row in rows]
+    return await db_client.get_alert_history(limit)
 
 
 @app.get("/alerts/active")
@@ -594,19 +582,7 @@ async def get_poll_history(limit: int = 100):
     """Get recent poll history."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
-
-    async with db_client._get_connection() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT ph.*, d.ip_address, d.name
-            FROM poll_history ph
-            LEFT JOIN devices d ON ph.device_id = d.id
-            ORDER BY ph.polled_at DESC
-            LIMIT $1
-            """,
-            limit,
-        )
-        return [dict(row) for row in rows]
+    return await db_client.get_poll_history(limit)
 
 
 # Service Check endpoints

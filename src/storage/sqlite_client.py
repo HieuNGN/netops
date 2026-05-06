@@ -463,6 +463,46 @@ class AsyncSQLiteClient:
             return d
         return None
 
+    async def record_alert_history(
+        self, alert_config_id: str, message: str, status: str = "triggered"
+    ):
+        """Record an alert in history."""
+        await self._db.execute(
+            "INSERT INTO alert_history (alert_config_id, message, status) VALUES (?, ?, ?)",
+            (alert_config_id, message, status),
+        )
+        await self._db.commit()
+
+    async def get_alert_history(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get recent alert history with alert config details."""
+        cursor = await self._db.execute(
+            """
+            SELECT ah.*, ac.name as alert_name, ac.channel
+            FROM alert_history ah
+            LEFT JOIN alert_configs ac ON ah.alert_config_id = ac.id
+            ORDER BY ah.triggered_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def get_poll_history(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get recent poll history with device details."""
+        cursor = await self._db.execute(
+            """
+            SELECT ph.*, d.ip_address, d.name
+            FROM poll_history ph
+            LEFT JOIN devices d ON ph.device_id = d.id
+            ORDER BY ph.polled_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     async def list_maintenance_windows(self) -> list[dict[str, Any]]:
         """List all maintenance windows ordered by start time."""
         cursor = await self._db.execute("SELECT * FROM maintenance_windows ORDER BY start_time DESC")

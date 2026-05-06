@@ -220,14 +220,11 @@ class AlertService:
     async def _record_alert(self, alert_config_id: str, alert: dict[str, Any]):
         """Record alert in history."""
         try:
-            async with self.db_client._get_connection() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO alert_history (alert_config_id, message, status)
-                    VALUES ($1, $2, 'triggered')
-                    """,
-                    alert_config_id, alert.get("message", ""),
-                )
+            await self.db_client.record_alert_history(
+                alert_config_id,
+                alert.get("message", ""),
+                status="triggered",
+            )
         except Exception:
             pass  # Don't fail on history recording
 
