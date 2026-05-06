@@ -124,6 +124,14 @@ class AlertService:
         """
         stats = {"sent": 0, "failed": 0, "skipped": 0}
 
+        # Suppress alerts during maintenance windows
+        try:
+            if await self.db_client.is_in_maintenance_window():
+                stats["skipped"] = len(alerts)
+                return stats
+        except Exception:
+            pass  # Don't fail if maintenance window check errors
+
         # Get enabled alert configurations
         alert_configs = await self.db_client.list_alert_configs()
 

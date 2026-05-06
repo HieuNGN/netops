@@ -149,6 +149,16 @@ class AsyncSQLiteClient:
             );
             CREATE INDEX IF NOT EXISTS idx_topology_history_event ON topology_history(event_type);
             CREATE INDEX IF NOT EXISTS idx_topology_history_recorded_at ON topology_history(recorded_at);
+
+            CREATE TABLE IF NOT EXISTS maintenance_windows (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time);
         """)
         # Migrate existing tables: add discovery_method if missing
         try:
@@ -432,6 +442,39 @@ class AsyncSQLiteClient:
                 d["config_json"] = json.loads(d["config_json"]) if isinstance(d["config_json"], str) else d["config_json"]
             return d
         return None
+
+    async def list_maintenance_windows(self) -> list[dict[str, Any]]:
+        """List all maintenance windows ordered by start time."""
+        cursor = await self._db.execute("SELECT * FROM maintenance_windows ORDER BY start_time DESC")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def create_maintenance_window(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a maintenance window."""
+        window_id = str(uuid.uuid4())
+        await self._db.execute(
+            "INSERT INTO maintenance_windows (id, name, start_time, end_time, description) VALUES (?, ?, ?, ?, ?)",
+            (window_id, data["name"], data["start_time"], data["end_time"], data.get("description", "")),
+        )
+        await self._db.commit()
+        return {"id": window_id, **data}
+
+    async def delete_maintenance_window(self, window_id: str) -> bool:
+        """Delete a maintenance window."""
+        await self._db.execute("DELETE FROM maintenance_windows WHERE id = ?", (window_id,))
+        await self._db.commit()
+        return True
+
+    async def is_in_maintenance_window(self) -> bool:
+        """Check if current time falls within any active maintenance window."""
+        import datetime
+        now = datetime.datetime.now().isoformat()
+        cursor = await self._db.execute(
+            "SELECT 1 FROM maintenance_windows WHERE start_time <= ? AND end_time >= ? LIMIT 1",
+            (now, now),
+        )
+        row = await cursor.fetchone()
+        return row is not None
 
     # Service check methods
     async def list_service_checks(self) -> list[dict[str, Any]]:

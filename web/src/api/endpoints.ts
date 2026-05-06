@@ -152,6 +152,23 @@ export const alertsApi = {
     apiClient.get('/alerts/history', { params: { limit } }),
 };
 
+export interface MaintenanceWindow {
+  id: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+  description: string;
+  created_at: string;
+}
+
+// Maintenance Windows API
+export const maintenanceWindowsApi = {
+  list: () => apiClient.get<{ windows: MaintenanceWindow[] }>('/maintenance-windows'),
+  create: (data: { name: string; start_time: string; end_time: string; description?: string }) =>
+    apiClient.post<{ window: MaintenanceWindow }>('/maintenance-windows', data),
+  delete: (id: string) => apiClient.delete(`/maintenance-windows/${id}`),
+};
+
 // Health API
 export const healthApi = {
   check: () => apiClient.get('/health'),

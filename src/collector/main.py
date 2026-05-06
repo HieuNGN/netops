@@ -546,6 +546,48 @@ async def test_alert(alert_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Maintenance Windows endpoints
+class MaintenanceWindowCreate(BaseModel):
+    name: str
+    start_time: str = Field(..., description="ISO 8601 datetime")
+    end_time: str = Field(..., description="ISO 8601 datetime")
+    description: str = ""
+
+
+@app.get("/maintenance-windows")
+async def list_maintenance_windows():
+    """List all maintenance windows."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    return {"windows": await db_client.list_maintenance_windows()}
+
+
+@app.post("/maintenance-windows")
+async def create_maintenance_window(window: MaintenanceWindowCreate):
+    """Create a new maintenance window."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    from datetime import datetime
+    try:
+        datetime.fromisoformat(window.start_time.replace("Z", "+00:00"))
+        datetime.fromisoformat(window.end_time.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid datetime format. Use ISO 8601.")
+    data = await db_client.create_maintenance_window(window.dict())
+    return {"status": "created", "window": data}
+
+
+@app.delete("/maintenance-windows/{window_id}")
+async def delete_maintenance_window(window_id: str):
+    """Delete a maintenance window."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    success = await db_client.delete_maintenance_window(window_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Maintenance window not found")
+    return {"status": "deleted", "id": window_id}
+
+
 # Poll history endpoint
 @app.get("/poll-history")
 async def get_poll_history(limit: int = 100):

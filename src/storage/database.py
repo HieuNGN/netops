@@ -108,6 +108,17 @@ alert_history_table = Table(
     Column("status", String, default="triggered"),
 )
 
+maintenance_windows_table = Table(
+    "maintenance_windows",
+    Base.metadata,
+    Column("id", String, primary_key=True),
+    Column("name", String, nullable=False),
+    Column("start_time", DateTime, nullable=False),
+    Column("end_time", DateTime, nullable=False),
+    Column("description", Text),
+    Column("created_at", DateTime, server_default=func.now()),
+)
+
 
 class AsyncPostgresClient:
     """Async PostgreSQL client with connection pooling."""
@@ -302,6 +313,19 @@ class AsyncPostgresClient:
             """)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_topology_history_event ON topology_history(event_type)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_topology_history_recorded_at ON topology_history(recorded_at)")
+
+            # Maintenance windows for suppressing alerts during planned downtime
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS maintenance_windows (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    start_time TIMESTAMPTZ NOT NULL,
+                    end_time TIMESTAMPTZ NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time)")
 
     async def list_devices(self) -> list[dict[str, Any]]:
         """List all devices."""
@@ -593,6 +617,51 @@ class AsyncPostgresClient:
                     d["config_json"] = json.loads(d["config_json"]) if isinstance(d["config_json"], str) else d["config_json"]
                 return d
             return None
+
+    async def list_maintenance_windows(self) -> list[dict[str, Any]]:
+        """List all maintenance windows ordered by start time."""
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM maintenance_windows ORDER BY start_time DESC"
+            )
+            return [dict(row) for row in rows]
+
+    async def create_maintenance_window(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a maintenance window."""
+        window_id = str(uuid.uuid4())
+        async with self._get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO maintenance_windows (id, name, start_time, end_time, description)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                window_id,
+                data["name"],
+                data["start_time"],
+                data["end_time"],
+                data.get("description", ""),
+            )
+        return {"id": window_id, **data}
+
+    async def delete_maintenance_window(self, window_id: str) -> bool:
+        """Delete a maintenance window."""
+        async with self._get_connection() as conn:
+            result = await conn.execute(
+                "DELETE FROM maintenance_windows WHERE id = $1", window_id
+            )
+            return result == "DELETE 1"
+
+    async def is_in_maintenance_window(self) -> bool:
+        """Check if current time falls within any active maintenance window."""
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT 1 FROM maintenance_windows
+                WHERE start_time <= NOW() AND end_time >= NOW()
+                LIMIT 1
+                """
+            )
+            return row is not None
 
     async def close(self):
         """Close database connections."""
