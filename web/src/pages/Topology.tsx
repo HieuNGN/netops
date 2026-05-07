@@ -7,47 +7,71 @@ import { apiClient } from '../api';
 // Persistent node label renderer (drawn on canvas, not tooltip)
 function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number) {
   const label = node.label || node.id;
-  const fontSize = 12 / globalScale;
-  const nodeRadius = 6;
+  const fontSize = Math.max(10, 12 / globalScale);
+  const nodeRadius = 7;
 
-  // Color by type/status
+  // Color by type/status — blueprint-inspired solid fills
   const baseColor = node.node_type === 'router' ? '#da1e28'
     : node.node_type === 'firewall' ? '#f1c21b'
     : node.node_type === 'switch' ? '#0f62fe'
     : '#525252';
-  const color = node.status === 'offline' ? '#393939' : baseColor;
+  const color = node.status === 'offline' ? '#8d8d8d' : baseColor;
 
-  // Draw node circle
+  // Draw node circle with subtle drop shadow for depth against grid
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+  ctx.shadowBlur = 4 / globalScale;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2 / globalScale;
+
   ctx.beginPath();
   ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
   ctx.fillStyle = color;
   ctx.fill();
+  ctx.restore();
 
   // White border for contrast
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1.5 / globalScale;
+  ctx.lineWidth = 1.8 / globalScale;
   ctx.stroke();
 
-  // Draw label below node
-  ctx.font = `${fontSize}px IBM Plex Sans, system-ui, sans-serif`;
+  // Draw label below node with text-halo for legibility over dot grid
+  ctx.font = `500 ${fontSize}px IBM Plex Sans, system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.fillStyle = globalScale > 0.8 ? '#161616' : 'transparent';
-  if (globalScale <= 0.8) {
-    ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#f4f4f4' : '#161616';
-  }
-  ctx.fillText(label, node.x, node.y + nodeRadius + 4 / globalScale);
 
-  // Draw status indicator dot
+  const textY = node.y + nodeRadius + 5 / globalScale;
+  const textMetrics = ctx.measureText(label);
+  const textWidth = textMetrics.width;
+  const textHeight = fontSize;
+  const pad = 3 / globalScale;
+
+  // Halo background behind text
+  ctx.fillStyle = 'rgba(245, 245, 245, 0.85)';
+  ctx.beginPath();
+  ctx.roundRect(
+    node.x - textWidth / 2 - pad,
+    textY - pad,
+    textWidth + pad * 2,
+    textHeight + pad * 2,
+    2 / globalScale,
+  );
+  ctx.fill();
+
+  // Label text
+  ctx.fillStyle = '#161616';
+  ctx.fillText(label, node.x, textY);
+
+  // Draw status indicator dot (upper-right quadrant of node)
   const statusColor = node.status === 'online' ? '#24a148'
     : node.status === 'offline' ? '#da1e28'
     : '#a8a8a8';
   ctx.beginPath();
-  ctx.arc(node.x + nodeRadius - 1, node.y - nodeRadius + 1, 2.5, 0, 2 * Math.PI);
+  ctx.arc(node.x + nodeRadius - 1.5, node.y - nodeRadius + 1.5, 2.8, 0, 2 * Math.PI);
   ctx.fillStyle = statusColor;
   ctx.fill();
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 0.8 / globalScale;
+  ctx.lineWidth = 1 / globalScale;
   ctx.stroke();
 }
 
@@ -214,7 +238,15 @@ export function Topology() {
       </div>
 
       <div className="flex-1 flex">
-        <div className="flex-1 relative">
+        <div
+          className="flex-1 relative"
+          style={{
+            backgroundColor: '#f5f5f5',
+            backgroundImage:
+              'radial-gradient(circle, #d0d0d0 1.2px, transparent 1.2px)',
+            backgroundSize: '28px 28px',
+          }}
+        >
           <ForceGraph2D
             ref={graphRef}
             graphData={graphData}
