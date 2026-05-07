@@ -1,8 +1,55 @@
-import { useRef, useMemo, useState } from 'react';
+import { useRef, useMemo, useState, useCallback } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { RefreshCw, ZoomIn, ZoomOut, Network, LayoutTemplate, GitBranch } from 'lucide-react';
+import { RefreshCw, ZoomIn, ZoomOut, Network, LayoutTemplate, GitBranch, Maximize, RotateCcw } from 'lucide-react';
 import { useTopology } from '../hooks/useTopology';
 import { apiClient } from '../api';
+
+// Persistent node label renderer (drawn on canvas, not tooltip)
+function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number) {
+  const label = node.label || node.id;
+  const fontSize = 12 / globalScale;
+  const nodeRadius = 6;
+
+  // Color by type/status
+  const baseColor = node.node_type === 'router' ? '#da1e28'
+    : node.node_type === 'firewall' ? '#f1c21b'
+    : node.node_type === 'switch' ? '#0f62fe'
+    : '#525252';
+  const color = node.status === 'offline' ? '#393939' : baseColor;
+
+  // Draw node circle
+  ctx.beginPath();
+  ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  // White border for contrast
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5 / globalScale;
+  ctx.stroke();
+
+  // Draw label below node
+  ctx.font = `${fontSize}px IBM Plex Sans, system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = globalScale > 0.8 ? '#161616' : 'transparent';
+  if (globalScale <= 0.8) {
+    ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#f4f4f4' : '#161616';
+  }
+  ctx.fillText(label, node.x, node.y + nodeRadius + 4 / globalScale);
+
+  // Draw status indicator dot
+  const statusColor = node.status === 'online' ? '#24a148'
+    : node.status === 'offline' ? '#da1e28'
+    : '#a8a8a8';
+  ctx.beginPath();
+  ctx.arc(node.x + nodeRadius - 1, node.y - nodeRadius + 1, 2.5, 0, 2 * Math.PI);
+  ctx.fillStyle = statusColor;
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 0.8 / globalScale;
+  ctx.stroke();
+}
 
 export function Topology() {
   const { topology, isLoading, refresh, isStreaming, lastUpdate } = useTopology();
@@ -22,6 +69,15 @@ export function Topology() {
       setIsSimulating(false);
     }
   };
+
+  const handleFit = useCallback(() => {
+    graphRef.current?.zoomToFit(400, 20);
+  }, []);
+
+  const handleReset = useCallback(() => {
+    graphRef.current?.centerAt(0, 0, 400);
+    graphRef.current?.zoom(1, 400);
+  }, []);
 
   const graphData = useMemo(() => ({
     nodes: topology.nodes.map((n) => ({
@@ -43,7 +99,7 @@ export function Topology() {
 
   const handleNodeClick = (node: any) => {
     setSelectedNode(node);
-    graphRef.current?.centerOn(node);
+    graphRef.current?.centerOn(node, 400);
   };
 
   const handleLinkClick = (link: any) => {
@@ -98,14 +154,28 @@ export function Topology() {
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
-              onClick={() => graphRef.current?.zoom(1.5)}
+              onClick={handleFit}
+              className="p-2 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
+              title="Fit to view"
+            >
+              <Maximize className="h-5 w-5" />
+            </button>
+            <button
+              onClick={handleReset}
+              className="p-2 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
+              title="Reset view"
+            >
+              <RotateCcw className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => graphRef.current?.zoom(1.5, 400)}
               className="p-2 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
               title="Zoom In"
             >
               <ZoomIn className="h-5 w-5" />
             </button>
             <button
-              onClick={() => graphRef.current?.zoom(0.5)}
+              onClick={() => graphRef.current?.zoom(0.5, 400)}
               className="p-2 text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939] rounded-sm"
               title="Zoom Out"
             >
@@ -126,7 +196,7 @@ export function Topology() {
             <button
               onClick={handleSimulate}
               disabled={isSimulating}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center space-x-2 px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252] disabled:opacity-50 disabled:cursor-not-allowed"
               title="Generate simulated network topology for demo"
             >
               <Network className="h-4 w-4" />
@@ -134,7 +204,7 @@ export function Topology() {
             </button>
             <button
               onClick={refresh}
-              className="flex items-center space-x-2 px-4 py-2 bg-[#161616] text-white rounded-sm hover:bg-[#525252]"
+              className="flex items-center space-x-2 px-4 py-2 bg-[#0f62fe] text-white rounded-sm hover:bg-[#0353e9]"
             >
               <RefreshCw className="h-4 w-4" />
               <span>Refresh</span>
@@ -150,23 +220,18 @@ export function Topology() {
             graphData={graphData}
             dagMode={hierarchical ? 'td' : undefined}
             dagLevelDistance={hierarchical ? 120 : undefined}
-            nodeColor={(node: any) => {
-              // Color by node type first, then adjust by status
-              const baseColor = node.node_type === 'router' ? '#da1e28'
-                : node.node_type === 'firewall' ? '#f1c21b'
-                : node.node_type === 'switch' ? '#0f62fe'
-                : '#525252';
-              // Dim for offline status
-              return node.status === 'offline' ? '#393939' : baseColor;
-            }}
-            nodeRelSize={10}
+            nodeCanvasObject={drawNode}
+            nodeRelSize={6}
             linkColor={() => '#a8a8a8'}
-            linkWidth={2.5}
-            linkDirectionalArrowLength={hierarchical ? 6 : 4}
-            nodeLabel={(node: any) => `${node.label}\n${node.node_type} • ${node.status}`}
-            linkLabel={(link: any) =>
-              `${link.source_port || ''} → ${link.target_port || ''}`
-            }
+            linkWidth={2}
+            linkDirectionalArrowLength={hierarchical ? 6 : 0}
+            linkDirectionalArrowRelLen={6}
+            nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+              ctx.fillStyle = color;
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, 8, 0, 2 * Math.PI);
+              ctx.fill();
+            }}
             onNodeClick={handleNodeClick}
             onLinkClick={handleLinkClick}
             backgroundColor="transparent"
