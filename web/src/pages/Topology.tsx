@@ -1,6 +1,6 @@
 import { useRef, useMemo, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { RefreshCw, ZoomIn, ZoomOut, Network } from 'lucide-react';
+import { RefreshCw, ZoomIn, ZoomOut, Network, LayoutTemplate, GitBranch } from 'lucide-react';
 import { useTopology } from '../hooks/useTopology';
 import { apiClient } from '../api';
 
@@ -9,6 +9,7 @@ export function Topology() {
   const graphRef = useRef<any>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [hierarchical, setHierarchical] = useState(false);
 
   const handleSimulate = async () => {
     setIsSimulating(true);
@@ -29,6 +30,7 @@ export function Topology() {
       status: n.status,
       node_type: n.node_type,
       device_id: n.device_id,
+      level: n.level ?? (n.node_type === 'firewall' ? 0 : n.node_type === 'router' ? 1 : n.node_type === 'switch' ? 3 : 2),
     })),
     links: topology.links.map((l) => ({
       source: l.source_id,
@@ -110,6 +112,18 @@ export function Topology() {
               <ZoomOut className="h-5 w-5" />
             </button>
             <button
+              onClick={() => setHierarchical((v) => !v)}
+              className={`flex items-center space-x-2 px-3 py-2 rounded-sm text-sm font-medium ${
+                hierarchical
+                  ? 'bg-[#0f62fe] text-white'
+                  : 'text-[#525252] dark:text-[#a8a8a8] hover:bg-[#e0e0e0] dark:hover:bg-[#393939]'
+              }`}
+              title={hierarchical ? 'Switch to force-directed layout' : 'Switch to hierarchical layout'}
+            >
+              {hierarchical ? <GitBranch className="h-4 w-4" /> : <LayoutTemplate className="h-4 w-4" />}
+              <span className="hidden sm:inline">{hierarchical ? 'Hierarchy' : 'Force'}</span>
+            </button>
+            <button
               onClick={handleSimulate}
               disabled={isSimulating}
               className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -134,6 +148,8 @@ export function Topology() {
           <ForceGraph2D
             ref={graphRef}
             graphData={graphData}
+            dagMode={hierarchical ? 'td' : undefined}
+            dagLevelDistance={hierarchical ? 120 : undefined}
             nodeColor={(node: any) => {
               // Color by node type first, then adjust by status
               const baseColor = node.node_type === 'router' ? '#da1e28'
@@ -146,7 +162,7 @@ export function Topology() {
             nodeRelSize={10}
             linkColor={() => '#a8a8a8'}
             linkWidth={2.5}
-            linkDirectionalArrowLength={4}
+            linkDirectionalArrowLength={hierarchical ? 6 : 4}
             nodeLabel={(node: any) => `${node.label}\n${node.node_type} • ${node.status}`}
             linkLabel={(link: any) =>
               `${link.source_port || ''} → ${link.target_port || ''}`
@@ -154,10 +170,10 @@ export function Topology() {
             onNodeClick={handleNodeClick}
             onLinkClick={handleLinkClick}
             backgroundColor="transparent"
-            cooldownTime={1500}
-            d3AlphaDecay={0.015}
-            d3VelocityDecay={0.3}
-            warmupTicks={100}
+            cooldownTime={hierarchical ? 0 : 1500}
+            d3AlphaDecay={hierarchical ? 0 : 0.015}
+            d3VelocityDecay={hierarchical ? 0 : 0.3}
+            warmupTicks={hierarchical ? 0 : 100}
           />
         </div>
 

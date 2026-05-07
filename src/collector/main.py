@@ -276,6 +276,16 @@ async def simulate_topology():
     ]
 
     # Build topology nodes directly (will be upserted)
+    # Assign hierarchy levels for visual layout: 0=edge, 1=core, 2=distribution, 3=access
+    def get_level(name: str) -> int:
+        if "Firewall" in name:
+            return 0
+        if "Core" in name:
+            return 1
+        if "Distribution" in name:
+            return 2
+        return 3
+
     nodes = []
     for dev in simulated_devices:
         node_type = "router" if "Router" in dev["name"] else "firewall" if "Firewall" in dev["name"] else "switch"
@@ -285,6 +295,7 @@ async def simulate_topology():
             "label": dev["name"],
             "node_type": node_type,
             "status": "online",
+            "level": get_level(dev["name"]),
         })
 
     # Build topology links (hierarchical network design)
