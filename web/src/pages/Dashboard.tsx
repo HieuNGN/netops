@@ -1,10 +1,11 @@
-import { Activity, Server, Network, CheckCircle, AlertCircle, ArrowUpCircle, ArrowDownCircle, Bell, Check, X } from 'lucide-react';
+import { Activity, Server, Network, CheckCircle, AlertCircle, ArrowUpCircle, ArrowDownCircle, Bell, Check, X, History } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTopology } from '../hooks/useTopology';
 import { useDevices } from '../hooks/useDevices';
 import { useChecks } from '../hooks/useChecks';
 import { useActiveAlerts } from '../hooks/useActiveAlerts';
 import { usePollHistory } from '../hooks/usePollHistory';
+import { useTopologyHistory } from '../hooks/useTopologyHistory';
 import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from 'recharts';
 
 function StatCard({ title, value, subtext, icon: Icon, color, trend }: any) {
@@ -46,6 +47,7 @@ export function Dashboard() {
   const { checks } = useChecks();
   const { alerts: activeAlerts, acknowledge, resolve } = useActiveAlerts();
   const { history: pollHistory, isLoading: pollHistoryLoading } = usePollHistory(250);
+  const { events: topologyEvents, isLoading: topologyEventsLoading } = useTopologyHistory(20);
 
   const deviceStats = {
     online: devices.filter((d) => d.status === 'online').length,
@@ -360,6 +362,58 @@ export function Dashboard() {
               </ResponsiveContainer>
             );
           })()
+        )}
+      </div>
+
+      {/* Recent Topology Changes */}
+      <div className="bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6 mt-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-[#161616] dark:text-white flex items-center space-x-2">
+            <History className="h-5 w-5 text-[#0f62fe] dark:text-[#78a9ff]" />
+            <span>Recent Topology Changes</span>
+          </h2>
+          <Link
+            to="/topology/history"
+            className="text-sm text-[#161616] dark:text-[#a8a8a8] hover:text-[#161616] dark:hover:text-[#f4f4f4]"
+          >
+            View all →
+          </Link>
+        </div>
+        {topologyEventsLoading || topologyEvents.length === 0 ? (
+          <p className="text-[#525252] dark:text-[#a8a8a8] text-sm text-center py-8">No topology changes recorded</p>
+        ) : (
+          <div className="space-y-2">
+            {topologyEvents.slice(0, 10).map((event) => (
+              <div
+                key={event.id}
+                className="flex items-center justify-between py-2 border-b border-[#f4f4f4] dark:border-[#393939] last:border-0"
+              >
+                <div className="flex items-center space-x-3">
+                  <span
+                    className={`inline-flex px-2 py-0.5 text-xs rounded-sm font-medium ${
+                      event.event_type === 'node_added'
+                        ? 'bg-[#defbe6] text-[#24a148]'
+                        : event.event_type === 'node_removed'
+                        ? 'bg-[#fff0f1] text-[#da1e28]'
+                        : event.event_type === 'link_added'
+                        ? 'bg-[#e8f0fe] text-[#0f62fe]'
+                        : event.event_type === 'link_removed'
+                        ? 'bg-[#fff0f1] text-[#da1e28]'
+                        : 'bg-[#e0e0e0] text-[#161616]'
+                    }`}
+                  >
+                    {event.event_type}
+                  </span>
+                  <span className="text-sm text-[#161616] dark:text-white">
+                    {event.node_id || event.link_id || 'Topology'}
+                  </span>
+                </div>
+                <span className="text-xs text-[#a8a8a8] dark:text-[#525252]">
+                  {new Date(event.recorded_at).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
