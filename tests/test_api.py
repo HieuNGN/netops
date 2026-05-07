@@ -51,7 +51,6 @@ class TestTopologyEndpoints:
         assert data["links"] == 8  # 8 links in hierarchy
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires PostgreSQL - poll_now() returns None with SQLite")
     async def test_topology_refresh(self, client):
         """Test triggering topology refresh."""
         response = await client.post("/topology/refresh")
@@ -343,7 +342,6 @@ class TestAlertEndpoints:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="PostgreSQL-only endpoint (uses raw connection)")
     async def test_get_alert_history(self, client):
         """Test getting alert history."""
         response = await client.get("/alerts/history")
@@ -440,7 +438,6 @@ class TestPollHistoryEndpoint:
     """Tests for /poll-history endpoint."""
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="PostgreSQL-only endpoint (uses raw connection)")
     async def test_get_poll_history(self, client):
         """Test getting poll history."""
         response = await client.get("/poll-history")
