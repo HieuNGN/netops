@@ -160,6 +160,8 @@ export const alertsApi = {
     config: Record<string, any>;
     enabled?: boolean;
   }) => apiClient.post<AlertConfig>('/alerts', data),
+  update: (id: string, data: Partial<AlertConfig>) =>
+    apiClient.put<AlertConfig>(`/alerts/${id}`, data),
   delete: (id: string) => apiClient.delete(`/alerts/${id}`),
   test: (id: string) => apiClient.post(`/alerts/${id}/test`),
   history: (limit?: number) =>

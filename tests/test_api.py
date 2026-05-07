@@ -436,19 +436,6 @@ class TestDiscoveryEndpoint:
         assert "found" in data
 
 
-class TestTopologyHistoryEndpoint:
-    """Tests for /topology/history endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_topology_history(self, client):
-        """Test getting topology history."""
-        response = await client.get("/topology/history")
-        assert response.status_code == 200
-        data = response.json()
-        assert "events" in data
-        assert isinstance(data["events"], list)
-
-
 class TestPollHistoryEndpoint:
     """Tests for /poll-history endpoint."""
 
@@ -538,6 +525,15 @@ class TestMaintenanceWindowEndpoints:
 
 class TestTopologyHistoryEndpoint:
     """Tests for topology history endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_topology_history(self, client):
+        """Test getting topology history."""
+        response = await client.get("/topology/history")
+        assert response.status_code == 200
+        data = response.json()
+        assert "events" in data
+        assert isinstance(data["events"], list)
 
     @pytest.mark.asyncio
     async def test_get_topology_history_empty(self, client):
