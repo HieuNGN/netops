@@ -19,6 +19,28 @@
         }
       })();
     </script>
+    <script>
+      // Nuke stale service workers from previous projects that hijacked localhost:3000
+      (function() {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            regs.forEach(function(reg) {
+              console.warn('[SW] Unregistering stale service worker:', reg.scope);
+              reg.unregister();
+            });
+          });
+          // Also wipe any old caches
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              names.forEach(function(name) {
+                console.warn('[Cache] Deleting stale cache:', name);
+                caches.delete(name);
+              });
+            });
+          }
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -43,6 +43,7 @@ class AsyncSQLiteClient:
                 status TEXT DEFAULT 'unknown',
                 sys_descr TEXT,
                 discovery_method TEXT DEFAULT 'manual',
+                network_id TEXT,
                 last_polled TEXT,
                 created TEXT DEFAULT (datetime('now')),
                 updated TEXT DEFAULT (datetime('now'))
@@ -51,6 +52,7 @@ class AsyncSQLiteClient:
             CREATE TABLE IF NOT EXISTS topology_nodes (
                 id TEXT PRIMARY KEY,
                 device_id TEXT,
+                network_id TEXT,
                 label TEXT,
                 node_type TEXT DEFAULT 'device',
                 status TEXT DEFAULT 'unknown',
@@ -62,6 +64,7 @@ class AsyncSQLiteClient:
                 id TEXT PRIMARY KEY,
                 source_id TEXT NOT NULL,
                 target_id TEXT NOT NULL,
+                network_id TEXT,
                 source_port TEXT,
                 target_port TEXT,
                 status TEXT DEFAULT 'active',
@@ -159,6 +162,19 @@ class AsyncSQLiteClient:
                 created_at TEXT DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time);
+
+            CREATE TABLE IF NOT EXISTS networks (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                cidr TEXT,
+                description TEXT,
+                is_default INTEGER DEFAULT 0,
+                created TEXT DEFAULT (datetime('now')),
+                updated TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_networks_name ON networks(name);
+            CREATE INDEX IF NOT EXISTS idx_networks_default ON networks(is_default);
+            CREATE INDEX IF NOT EXISTS idx_devices_network ON devices(network_id);
         """)
         # Migrate existing tables: add discovery_method if missing
         try:
@@ -167,6 +183,15 @@ class AsyncSQLiteClient:
             )
         except Exception:
             pass  # Column already exists
+
+        # Migrate existing tables: add network_id if missing
+        for table in ("devices", "topology_nodes", "topology_links"):
+            try:
+                await self._db.execute(
+                    f"ALTER TABLE {table} ADD COLUMN network_id TEXT"
+                )
+            except Exception:
+                pass  # Column already exists
         await self._db.commit()
 
     async def close(self):
@@ -245,6 +270,77 @@ class AsyncSQLiteClient:
         )
         await self._db.commit()
         return cursor.rowcount == 1
+
+    # Network methods
+    async def list_networks(self) -> list[dict[str, Any]]:
+        """List all networks ordered by name."""
+        cursor = await self._db.execute("SELECT * FROM networks ORDER BY name")
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def get_network(self, network_id: str) -> Optional[dict[str, Any]]:
+        """Get network by id or name."""
+        cursor = await self._db.execute(
+            "SELECT * FROM networks WHERE id = ? OR name = ?",
+            (network_id, network_id)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def create_network(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new network."""
+        network_id = data.get("id") or str(uuid.uuid4())
+        await self._db.execute(
+            """
+            INSERT INTO networks (id, name, cidr, description, is_default)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (network_id, data["name"], data.get("cidr"), data.get("description", ""),
+             1 if data.get("is_default") else 0)
+        )
+        await self._db.commit()
+        return await self.get_network(network_id)
+
+    async def update_network(self, network_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Update an existing network."""
+        fields = ", ".join(f"{k} = ?" for k in data.keys())
+        values = list(data.values()) + [network_id, network_id]
+        await self._db.execute(
+            f"UPDATE networks SET {fields}, updated = datetime('now') WHERE id = ? OR name = ?",
+            values
+        )
+        await self._db.commit()
+        return await self.get_network(network_id)
+
+    async def delete_network(self, network_id: str) -> bool:
+        """Delete a network."""
+        cursor = await self._db.execute(
+            "DELETE FROM networks WHERE id = ? OR name = ?",
+            (network_id, network_id)
+        )
+        await self._db.commit()
+        return cursor.rowcount == 1
+
+    async def set_device_network(self, device_id: str, network_id: str) -> dict[str, Any]:
+        """Update device's network assignment."""
+        await self._db.execute(
+            "UPDATE devices SET network_id = ?, updated = datetime('now') WHERE id = ? OR ip_address = ?",
+            (network_id, device_id, device_id)
+        )
+        await self._db.commit()
+        return await self.get_device(device_id)
+
+    async def set_default_network(self, network_id: str) -> Optional[dict[str, Any]]:
+        """Set is_default=1 for one network, clear others."""
+        await self._db.execute(
+            "UPDATE networks SET is_default = 0, updated = datetime('now') WHERE is_default = 1"
+        )
+        await self._db.execute(
+            "UPDATE networks SET is_default = 1, updated = datetime('now') WHERE id = ? OR name = ?",
+            (network_id, network_id)
+        )
+        await self._db.commit()
+        return await self.get_network(network_id)
 
     # Topology methods
     async def clear_topology(self):

@@ -257,8 +257,7 @@ export function Topology() {
             linkColor={() => '#a8a8a8'}
             linkWidth={2}
             linkDirectionalArrowLength={hierarchical ? 6 : 0}
-            linkDirectionalArrowRelLen={6}
-            nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+            nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D, _globalScale: number) => {
               ctx.fillStyle = color;
               ctx.beginPath();
               ctx.arc(node.x, node.y, 8, 0, 2 * Math.PI);

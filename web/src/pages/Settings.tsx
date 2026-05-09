@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../hooks/useTheme';
-import { Sun, Moon, Monitor, Save, Check } from 'lucide-react';
+import { Sun, Moon, Monitor, Save, Check, Plus, Minus } from 'lucide-react';
 import { useToast } from '../components/ui';
 
 export function Settings() {
@@ -132,39 +132,83 @@ export function Settings() {
               <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Default Community
               </label>
-              <input
-                type="text"
+              <select
                 value={snmpConfig.community}
                 onChange={(e) => setSnmpConfig({ ...snmpConfig, community: e.target.value })}
                 className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
-              />
+              >
+                <option value="public">public</option>
+                <option value="private">private</option>
+              </select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   Timeout (seconds)
                 </label>
-                <input
-                  type="number"
-                  value={snmpConfig.timeout}
-                  onChange={(e) => setSnmpConfig({ ...snmpConfig, timeout: parseInt(e.target.value) || 5 })}
-                  min="1"
-                  max="30"
-                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
-                />
+                <div className="flex items-stretch">
+                  <input
+                    type="number"
+                    value={snmpConfig.timeout}
+                    onChange={(e) => setSnmpConfig({ ...snmpConfig, timeout: parseInt(e.target.value) || 5 })}
+                    min="1"
+                    max="30"
+                    className="w-16 px-2 py-2 bg-white dark:bg-[#262626] text-[#161616] dark:text-white text-center border border-[#c6c6c6] dark:border-[#525252] rounded-sm"
+                    style={{ appearance: 'textfield' }}
+                  />
+                  <div className="flex flex-col ml-1">
+                    <button
+                      type="button"
+                      onClick={() => setSnmpConfig({ ...snmpConfig, timeout: Math.min(snmpConfig.timeout + 1, 30) })}
+                      className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-[#c6c6c6] dark:border-[#525252] rounded-t-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                      aria-label="Increase timeout"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSnmpConfig({ ...snmpConfig, timeout: Math.max(snmpConfig.timeout - 1, 1) })}
+                      className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-t-0 border-[#c6c6c6] dark:border-[#525252] rounded-b-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                      aria-label="Decrease timeout"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   Retries
                 </label>
-                <input
-                  type="number"
-                  value={snmpConfig.retries}
-                  onChange={(e) => setSnmpConfig({ ...snmpConfig, retries: parseInt(e.target.value) || 3 })}
-                  min="0"
-                  max="10"
-                  className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
-                />
+                <div className="flex items-stretch">
+                  <input
+                    type="number"
+                    value={snmpConfig.retries}
+                    onChange={(e) => setSnmpConfig({ ...snmpConfig, retries: parseInt(e.target.value) || 3 })}
+                    min="0"
+                    max="10"
+                    className="w-16 px-2 py-2 bg-white dark:bg-[#262626] text-[#161616] dark:text-white text-center border border-[#c6c6c6] dark:border-[#525252] rounded-sm"
+                    style={{ appearance: 'textfield' }}
+                  />
+                  <div className="flex flex-col ml-1">
+                    <button
+                      type="button"
+                      onClick={() => setSnmpConfig({ ...snmpConfig, retries: Math.min(snmpConfig.retries + 1, 10) })}
+                      className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-[#c6c6c6] dark:border-[#525252] rounded-t-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                      aria-label="Increase retries"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSnmpConfig({ ...snmpConfig, retries: Math.max(snmpConfig.retries - 1, 0) })}
+                      className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-t-0 border-[#c6c6c6] dark:border-[#525252] rounded-b-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                      aria-label="Decrease retries"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -188,27 +232,69 @@ export function Settings() {
               <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Topology Polling Interval (seconds)
               </label>
-              <input
-                type="number"
-                value={pollingConfig.topology_interval}
-                onChange={(e) => setPollingConfig({ ...pollingConfig, topology_interval: parseInt(e.target.value) || 30 })}
-                min="5"
-                max="300"
-                className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
-              />
+              <div className="flex items-stretch">
+                <input
+                  type="number"
+                  value={pollingConfig.topology_interval}
+                  onChange={(e) => setPollingConfig({ ...pollingConfig, topology_interval: parseInt(e.target.value) || 30 })}
+                  min="5"
+                  max="300"
+                  className="w-16 px-2 py-2 bg-white dark:bg-[#262626] text-[#161616] dark:text-white text-center border border-[#c6c6c6] dark:border-[#525252] rounded-sm"
+                  style={{ appearance: 'textfield' }}
+                />
+                <div className="flex flex-col ml-1">
+                  <button
+                    type="button"
+                    onClick={() => setPollingConfig({ ...pollingConfig, topology_interval: Math.min(pollingConfig.topology_interval + 5, 300) })}
+                    className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-[#c6c6c6] dark:border-[#525252] rounded-t-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                    aria-label="Increase interval"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPollingConfig({ ...pollingConfig, topology_interval: Math.max(pollingConfig.topology_interval - 5, 5) })}
+                    className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-t-0 border-[#c6c6c6] dark:border-[#525252] rounded-b-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                    aria-label="Decrease interval"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                 Service Check Default Interval (seconds)
               </label>
-              <input
-                type="number"
-                value={pollingConfig.check_interval}
-                onChange={(e) => setPollingConfig({ ...pollingConfig, check_interval: parseInt(e.target.value) || 60 })}
-                min="10"
-                max="3600"
-                className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
-              />
+              <div className="flex items-stretch">
+                <input
+                  type="number"
+                  value={pollingConfig.check_interval}
+                  onChange={(e) => setPollingConfig({ ...pollingConfig, check_interval: parseInt(e.target.value) || 60 })}
+                  min="10"
+                  max="3600"
+                  className="w-16 px-2 py-2 bg-white dark:bg-[#262626] text-[#161616] dark:text-white text-center border border-[#c6c6c6] dark:border-[#525252] rounded-sm"
+                  style={{ appearance: 'textfield' }}
+                />
+                <div className="flex flex-col ml-1">
+                  <button
+                    type="button"
+                    onClick={() => setPollingConfig({ ...pollingConfig, check_interval: Math.min(pollingConfig.check_interval + 10, 3600) })}
+                    className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-[#c6c6c6] dark:border-[#525252] rounded-t-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                    aria-label="Increase check interval"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPollingConfig({ ...pollingConfig, check_interval: Math.max(pollingConfig.check_interval - 10, 10) })}
+                    className="flex-1 px-2 py-1 bg-white dark:bg-[#262626] text-[#161616] dark:text-white border border-t-0 border-[#c6c6c6] dark:border-[#525252] rounded-b-sm hover:bg-[#f4f4f4] dark:hover:bg-[#393939]"
+                    aria-label="Decrease check interval"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -327,6 +327,29 @@ class AsyncPostgresClient:
             """)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time)")
 
+            # Networks
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS networks (
+                    id TEXT PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    cidr TEXT,
+                    description TEXT,
+                    is_default INTEGER DEFAULT 0,
+                    created TIMESTAMPTZ DEFAULT NOW(),
+                    updated TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_networks_name ON networks(name)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_networks_default ON networks(is_default)")
+
+            # Network associations on existing tables
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS network_id TEXT")
+            await conn.execute("ALTER TABLE topology_nodes ADD COLUMN IF NOT EXISTS network_id TEXT")
+            await conn.execute("ALTER TABLE topology_links ADD COLUMN IF NOT EXISTS network_id TEXT")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_devices_network ON devices(network_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_network ON topology_nodes(network_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_links_network ON topology_links(network_id)")
+
     async def list_devices(
         self, limit: Optional[int] = None, offset: Optional[int] = None
     ) -> list[dict[str, Any]]:
@@ -729,6 +752,85 @@ class AsyncPostgresClient:
                 """
             )
             return row is not None
+
+    # Network methods
+
+    async def list_networks(self) -> list[dict[str, Any]]:
+        """List all networks."""
+        async with self._get_connection() as conn:
+            rows = await conn.fetch("SELECT * FROM networks ORDER BY created DESC")
+            return [dict(row) for row in rows]
+
+    async def get_network(self, network_id: str) -> Optional[dict[str, Any]]:
+        """Get network by ID."""
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow("SELECT * FROM networks WHERE id = $1", network_id)
+            return dict(row) if row else None
+
+    async def create_network(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new network."""
+        network_id = data.get("id") or str(uuid.uuid4())
+        async with self._get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO networks (id, name, cidr, description, is_default)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (name) DO UPDATE SET
+                    cidr = EXCLUDED.cidr,
+                    description = EXCLUDED.description,
+                    is_default = EXCLUDED.is_default,
+                    updated = NOW()
+                """,
+                network_id,
+                data["name"],
+                data.get("cidr"),
+                data.get("description"),
+                1 if data.get("is_default", False) else 0,
+            )
+        return await self.get_network(network_id)
+
+    async def update_network(self, network_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Update an existing network."""
+        fields = ", ".join(f"{k} = ${i + 1}" for i, k in enumerate(data.keys()))
+        values = list(data.values()) + [network_id]
+        async with self._get_connection() as conn:
+            await conn.execute(
+                f"""
+                UPDATE networks SET {fields}, updated = NOW()
+                WHERE id = ${len(data) + 1}
+                """,
+                *values,
+            )
+        return await self.get_network(network_id)
+
+    async def delete_network(self, network_id: str) -> bool:
+        """Delete a network."""
+        async with self._get_connection() as conn:
+            result = await conn.execute("DELETE FROM networks WHERE id = $1", network_id)
+            return result == "DELETE 1"
+
+    async def set_device_network(self, device_id: str, network_id: str) -> dict[str, Any]:
+        """Set the network for a device."""
+        async with self._get_connection() as conn:
+            await conn.execute(
+                "UPDATE devices SET network_id = $1, updated = NOW() WHERE id = $2",
+                network_id,
+                device_id,
+            )
+        return await self.get_device(device_id)
+
+    async def set_default_network(self, network_id: str) -> dict[str, Any]:
+        """Set a network as the default and unset all others."""
+        async with self._get_connection() as conn:
+            await conn.execute(
+                "UPDATE networks SET is_default = 0 WHERE id != $1",
+                network_id,
+            )
+            await conn.execute(
+                "UPDATE networks SET is_default = 1, updated = NOW() WHERE id = $1",
+                network_id,
+            )
+        return await self.get_network(network_id)
 
     async def close(self):
         """Close database connections."""

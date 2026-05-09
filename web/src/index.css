@@ -58,6 +58,16 @@ body {
   min-height: 100vh;
 }
 
+/* Hide scrollbars globally */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes slide-in {
   from {
     transform: translateX(100%);

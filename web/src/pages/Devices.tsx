@@ -150,13 +150,14 @@ export function Devices() {
                 <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   SNMP Community
                 </label>
-                <input
-                  type="text"
+                <select
                   value={newDevice.community}
                   onChange={(e) => setNewDevice({ ...newDevice, community: e.target.value })}
                   className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
-                  placeholder="public"
-                />
+                >
+                  <option value="public">public</option>
+                  <option value="private">private</option>
+                </select>
               </div>
             </div>
             <div className="flex justify-end space-x-2">
@@ -227,13 +228,14 @@ export function Devices() {
                 <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mb-1">
                   SNMP Community
                 </label>
-                <input
-                  type="text"
+                <select
                   value={scanConfig.community}
                   onChange={(e) => setScanConfig({ ...scanConfig, community: e.target.value })}
                   className="w-full px-3 py-2 border border-[#c6c6c6] dark:border-[#525252] bg-white dark:bg-[#262626] text-[#161616] dark:text-white rounded-sm focus:ring-1 focus:ring-[#da1e28]"
-                  placeholder="public"
-                />
+                >
+                  <option value="public">public</option>
+                  <option value="private">private</option>
+                </select>
               </div>
               <div className="flex justify-end space-x-2 pt-2">
                 <button

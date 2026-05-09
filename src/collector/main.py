@@ -145,6 +145,19 @@ class DiscoveryRequest(BaseModel):
     method: str = "all"
 
 
+class NetworkCreate(BaseModel):
+    name: str
+    cidr: Optional[str] = None
+    description: Optional[str] = None
+
+
+class NetworkUpdate(BaseModel):
+    name: Optional[str] = None
+    cidr: Optional[str] = None
+    description: Optional[str] = None
+    is_default: Optional[bool] = None
+
+
 app = FastAPI(
     title="NetOps API",
     description="Network topology discovery and monitoring",
@@ -408,6 +421,85 @@ async def delete_device(device_id: str):
         raise HTTPException(status_code=404, detail="Device not found")
 
     return {"status": "deleted"}
+
+
+# Network endpoints
+@app.get("/networks")
+async def list_networks():
+    """List all networks."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    return await db_client.list_networks()
+
+
+@app.get("/networks/{network_id}")
+async def get_network(network_id: str):
+    """Get network by ID."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    network = await db_client.get_network(network_id)
+    if not network:
+        raise HTTPException(status_code=404, detail="Network not found")
+    return network
+
+
+@app.post("/networks")
+async def create_network(network: NetworkCreate):
+    """Create a new network."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    return await db_client.create_network(network.model_dump())
+
+
+@app.put("/networks/{network_id}")
+async def update_network(network_id: str, network: NetworkUpdate):
+    """Update a network."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    existing = await db_client.get_network(network_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Network not found")
+    update_data = {k: v for k, v in network.model_dump().items() if v is not None}
+    if update_data:  # Don't return None
+        return await db_client.update_network(network_id, update_data)
+    return existing
+
+
+@app.delete("/networks/{network_id}")
+async def delete_network(network_id: str):
+    """Delete a network."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    if not await db_client.delete_network(network_id):
+        raise HTTPException(status_code=404, detail="Network not found")
+    return {"status": "deleted"}
+
+
+@app.post("/networks/{network_id}/default")
+async def set_default_network(network_id: str):
+    """Set a network as the default."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    existing = await db_client.get_network(network_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Network not found")
+    await db_client.set_default_network(network_id)
+    return await db_client.get_network(network_id)
+
+
+@app.post("/devices/{device_id}/network/{network_id}")
+async def assign_device_network(device_id: str, network_id: str):
+    """Assign a device to a network."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    device = await db_client.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    network = await db_client.get_network(network_id)
+    if not network:
+        raise HTTPException(status_code=404, detail="Network not found")
+    await db_client.set_device_network(device_id, network_id)
+    return await db_client.get_device(device_id)
 
 
 # Topology history endpoint (Phase 6)

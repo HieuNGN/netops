@@ -12,6 +12,17 @@ export interface Device {
   last_polled: string;
   created: string;
   updated: string;
+  network_id?: string;
+}
+
+export interface Network {
+  id: string;
+  name: string;
+  cidr: string;
+  description: string;
+  is_default: boolean;
+  created: string;
+  updated: string;
 }
 
 export interface DiscoveryResult {
@@ -29,6 +40,7 @@ export interface TopologyNode {
   status: 'online' | 'offline' | 'unknown';
   created: string;
   updated: string;
+  level?: number;
 }
 
 export interface TopologyLink {
@@ -187,6 +199,20 @@ export const maintenanceWindowsApi = {
   create: (data: { name: string; start_time: string; end_time: string; description?: string }) =>
     apiClient.post<{ window: MaintenanceWindow }>('/maintenance-windows', data),
   delete: (id: string) => apiClient.delete(`/maintenance-windows/${id}`),
+};
+
+// Networks API
+export const networksApi = {
+  list: () => apiClient.get<Network[]>('/networks'),
+  get: (id: string) => apiClient.get<Network>(`/networks/${id}`),
+  create: (data: { name: string; cidr?: string; description?: string }) =>
+    apiClient.post<Network>('/networks', data),
+  update: (id: string, data: Partial<Network>) =>
+    apiClient.put<Network>(`/networks/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/networks/${id}`),
+  setDefault: (id: string) => apiClient.post<Network>(`/networks/${id}/default`),
+  assignDevice: (deviceId: string, networkId: string) =>
+    apiClient.post<Device>(`/devices/${deviceId}/network/${networkId}`),
 };
 
 // Health API

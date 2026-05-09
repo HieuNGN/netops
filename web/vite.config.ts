@@ -15,6 +15,7 @@ export default defineConfig({
       '/alerts': { target: 'http://localhost:8000', changeOrigin: true },
       '/stats': { target: 'http://localhost:8000', changeOrigin: true },
       '/discover': { target: 'http://localhost:8000', changeOrigin: true },
+      '/networks': { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
 })
