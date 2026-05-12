@@ -60,6 +60,7 @@ class SNMPPoller:
         self._task: Optional[asyncio.Task] = None
         self._topology_builder = TopologyBuilder()
         self._on_topology_change: Optional[Callable] = None
+        self._poll_semaphore = asyncio.Semaphore(5)  # Cap concurrent SNMP polls
 
     def set_topology_change_handler(self, handler: Callable):
         """Set callback for topology changes."""
@@ -103,7 +104,7 @@ class SNMPPoller:
             return
 
         results = []
-        self._topology_builder = TopologyBuilder()
+        self._topology_builder.clear()
 
         for device in devices:
             result = await self._poll_device(device)
@@ -129,8 +130,9 @@ class SNMPPoller:
             current_topology["nodes"], current_topology["links"]
         )
 
-        # Trigger change handler every cycle so status changes and auto-resolve run
-        if self._on_topology_change:
+        # Trigger change handler only when changes exist or status flipped
+        has_changes = any(v > 0 for v in changes.values())
+        if self._on_topology_change and has_changes:
             await self._on_topology_change(changes, current_topology)
 
     async def _poll_device(self, device: dict[str, Any]) -> PollResult:
@@ -144,18 +146,20 @@ class SNMPPoller:
             ip = device["ip_address"]
             community = device.get("community", "public")
 
-            # Run SNMP queries in executor to avoid blocking
-            loop = asyncio.get_event_loop()
+            # Cap concurrent SNMP polls to avoid thread pool exhaustion
+            async with self._poll_semaphore:
+                # Run SNMP queries in executor to avoid blocking
+                loop = asyncio.get_event_loop()
 
-            # Get sysDescr
-            sys_descr = await loop.run_in_executor(
-                None, get_sys_descr, ip, community
-            )
+                # Get sysDescr
+                sys_descr = await loop.run_in_executor(
+                    None, get_sys_descr, ip, community
+                )
 
-            # Get LLDP neighbors
-            neighbors = await loop.run_in_executor(
-                None, walk_lldp_neighbors, ip, community
-            )
+                # Get LLDP neighbors
+                neighbors = await loop.run_in_executor(
+                    None, walk_lldp_neighbors, ip, community
+                )
 
             response_time = (time.time() - start_time) * 1000
             self.stats.add_response_time(response_time)

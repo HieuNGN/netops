@@ -97,8 +97,9 @@ async def on_check_result(result: Any):
 
 async def on_topology_change(changes: dict[str, int], topology: dict[str, list]):
     """Handle topology changes - notify subscribers and dispatch alerts."""
-    # Notify SSE subscribers (only serialize if there are subscribers)
-    if topology_subscribers:
+    # Notify SSE subscribers only when there are structural changes
+    has_changes = any(v > 0 for v in changes.values())
+    if topology_subscribers and has_changes:
         message = json.dumps({"type": "topology_change", "changes": changes, "topology": topology})
         # Fan out to all subscribers concurrently
         await asyncio.gather(
@@ -106,7 +107,7 @@ async def on_topology_change(changes: dict[str, int], topology: dict[str, list])
             return_exceptions=True,
         )
 
-    # Dispatch alerts
+    # Always dispatch alerts — status flips need alert evaluation
     if alert_service:
         await alert_service.on_topology_change(changes, topology)
 

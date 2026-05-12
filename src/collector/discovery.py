@@ -102,10 +102,17 @@ async def _scan_hosts(
                 results.append(device)
             return device
 
-    await asyncio.gather(
-        *[scan_host(host) for host in hosts],
-        return_exceptions=True
-    )
+    # Batch hosts to cap total concurrent asyncio tasks and smooth CPU curve
+    BATCH_SIZE = 20
+    for i in range(0, len(hosts), BATCH_SIZE):
+        batch = hosts[i : i + BATCH_SIZE]
+        await asyncio.gather(
+            *[scan_host(host) for host in batch],
+            return_exceptions=True
+        )
+        # Yield between batches to prevent CPU spikes
+        if i + BATCH_SIZE < len(hosts):
+            await asyncio.sleep(0.05)
 
     return results
 

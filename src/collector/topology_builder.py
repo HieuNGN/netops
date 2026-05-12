@@ -22,6 +22,11 @@ class TopologyBuilder:
             **attributes,
         }
 
+    def clear(self) -> None:
+        """Clear all nodes and links."""
+        self.nodes.clear()
+        self.links.clear()
+
     def add_link(
         self, source: str, target: str, source_port: str = "", target_port: str = ""
     ) -> None:

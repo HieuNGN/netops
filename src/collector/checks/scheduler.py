@@ -14,12 +14,12 @@ from .ssl_check import SSLCheckExecutor
 
 
 class CheckScheduler:
-    """Orchestrates periodic service checks."""
+    """Orchestrates periodic service checks with a single tick loop."""
 
     def __init__(self, db_client: Any):
         self.db_client = db_client
         self._running = False
-        self._tasks: dict[str, asyncio.Task] = {}
+        self._master_task: Optional[asyncio.Task] = None
         self._executors: dict[str, CheckExecutor] = {
             "http": HTTPCheckExecutor(),
             "tcp": TCPCheckExecutor(),
@@ -28,7 +28,9 @@ class CheckScheduler:
             "ssl": SSLCheckExecutor(),
         }
         self._check_definitions: dict[str, CheckDefinition] = {}
+        self._next_run: dict[str, float] = {}
         self._on_check_result: Optional[Callable] = None
+        self._check_semaphore = asyncio.Semaphore(10)
         self._stats = {
             "total_checks": 0,
             "successful_checks": 0,
@@ -47,21 +49,65 @@ class CheckScheduler:
 
         self._running = True
         await self._load_checks_from_db()
-        await self._schedule_all_checks()
+        self._reset_next_run()
+        self._master_task = asyncio.create_task(self._tick_loop())
+        logger.info("Check scheduler started (single tick loop)")
 
     async def stop(self):
         """Stop the check scheduler."""
         self._running = False
-
-        # Cancel all scheduled tasks
-        for task in self._tasks.values():
-            task.cancel()
+        if self._master_task:
+            self._master_task.cancel()
             try:
-                await task
+                await self._master_task
             except asyncio.CancelledError:
                 pass
+            self._master_task = None
 
-        self._tasks.clear()
+    def _reset_next_run(self):
+        """Initialize next run times for all enabled checks."""
+        now = time.time()
+        self._next_run = {
+            cid: now + (i % max(1, len(self._check_definitions))) * 0.5
+            for i, (cid, d) in enumerate(self._check_definitions.items())
+            if d.enabled
+        }
+
+    async def _tick_loop(self):
+        """Master tick loop: wakes every 1s and runs due checks."""
+        while self._running:
+            try:
+                await self._run_due_checks()
+            except Exception as e:
+                print(f"[CheckScheduler] Error in tick loop: {e}")
+            await asyncio.sleep(1.0)
+
+    async def _run_due_checks(self):
+        """Execute all checks whose next_run time has passed."""
+        now = time.time()
+        due = [
+            (cid, self._check_definitions[cid])
+            for cid, nxt in self._next_run.items()
+            if nxt <= now and cid in self._check_definitions
+        ]
+
+        if not due:
+            return
+
+        async def run_one(cid: str, definition: CheckDefinition):
+            async with self._check_semaphore:
+                try:
+                    await self._execute_check(definition)
+                except Exception as e:
+                    print(f"[CheckScheduler] Error executing check {cid}: {e}")
+            # Stagger next run: add jitter so checks don't bunch after startup
+            jitter = (hash(cid) % 10) / 10.0
+            self._next_run[cid] = now + definition.interval_seconds + jitter
+
+        await asyncio.gather(
+            *[run_one(cid, d) for cid, d in due],
+            return_exceptions=True,
+        )
 
     async def _load_checks_from_db(self):
         """Load check definitions from database."""
@@ -82,24 +128,6 @@ class CheckScheduler:
             logger.info(f"Loaded {len(checks)} service checks from database")
         except Exception as e:
             logger.warning(f"Failed to load checks from database: {e}")
-
-    async def _schedule_all_checks(self):
-        """Schedule all check definitions."""
-        for check_id, definition in self._check_definitions.items():
-            if definition.enabled and check_id not in self._tasks:
-                self._tasks[check_id] = asyncio.create_task(
-                    self._run_periodic_check(definition)
-                )
-
-    async def _run_periodic_check(self, definition: CheckDefinition):
-        """Run a check periodically."""
-        while self._running and definition.enabled:
-            try:
-                await self._execute_check(definition)
-            except Exception as e:
-                print(f"[CheckScheduler] Error executing check {definition.id}: {e}")
-
-            await asyncio.sleep(definition.interval_seconds)
 
     async def _execute_check(self, definition: CheckDefinition) -> CheckResult:
         """Execute a single check."""
@@ -171,21 +199,13 @@ class CheckScheduler:
     def add_check(self, definition: CheckDefinition):
         """Add a new check definition."""
         self._check_definitions[definition.id] = definition
-
-        # Start scheduling if running and enabled
-        if self._running and definition.enabled and definition.id not in self._tasks:
-            self._tasks[definition.id] = asyncio.create_task(
-                self._run_periodic_check(definition)
-            )
+        if definition.enabled:
+            self._next_run[definition.id] = time.time()
 
     def remove_check(self, check_id: str):
         """Remove a check definition."""
-        if check_id in self._tasks:
-            self._tasks[check_id].cancel()
-            del self._tasks[check_id]
-
-        if check_id in self._check_definitions:
-            del self._check_definitions[check_id]
+        self._next_run.pop(check_id, None)
+        self._check_definitions.pop(check_id, None)
 
     def get_stats(self) -> dict[str, Any]:
         """Get scheduler statistics."""
@@ -193,7 +213,7 @@ class CheckScheduler:
             **self._stats,
             "running": self._running,
             "scheduled_checks": len(self._check_definitions),
-            "active_tasks": len(self._tasks),
+            "active_tasks": 1 if self._master_task else 0,
         }
 
     def get_check_definitions(self) -> list[dict[str, Any]]:

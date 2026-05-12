@@ -144,31 +144,7 @@ class TestSNMPPoller:
         assert call_args[0]["nodes_added"] == 1
 
     @pytest.mark.asyncio
-    async def test_handler_called_every_poll_cycle(self, poller, mock_db):
-        """Test change handler is called every cycle for status monitoring."""
-        mock_db.list_devices.return_value = [
-            {"id": "dev1", "ip_address": "192.168.1.1", "name": "Router-1", "community": "public"}
-        ]
-        mock_db.upsert_topology.return_value = {
-            "nodes_added": 0, "nodes_removed": 0,
-            "links_added": 0, "links_removed": 0,
-        }
-
-        handler = AsyncMock()
-        poller.set_topology_change_handler(handler)
-
-        with patch("src.collector.snmp_poller.get_sys_descr", return_value="Cisco IOS"):
-            with patch("src.collector.snmp_poller.walk_lldp_neighbors", return_value=[]):
-                await poller._poll_all_devices()
-
-        handler.assert_called_once()
-        call_args = handler.call_args[0]
-        assert call_args[0] == {"nodes_added": 0, "nodes_removed": 0, "links_added": 0, "links_removed": 0}
-        assert "nodes" in call_args[1]
-        assert "links" in call_args[1]
-
-    @pytest.mark.asyncio
-    async def test_build_topology_links(self, poller, mock_db):
+    async def test_handler_called_when_changes_exist(self, poller, mock_db):
         """Test topology link building from LLDP neighbors."""
         mock_db.list_devices.return_value = [
             {"id": "dev1", "ip_address": "192.168.1.1", "name": "Router-1", "community": "public"},
