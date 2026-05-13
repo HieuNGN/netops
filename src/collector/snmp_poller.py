@@ -58,6 +58,7 @@ class SNMPPoller:
         self.stats = PollStats()
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._retention_task: Optional[asyncio.Task] = None
         self._topology_builder = TopologyBuilder()
         self._on_topology_change: Optional[Callable] = None
         self._poll_semaphore = asyncio.Semaphore(5)  # Cap concurrent SNMP polls
@@ -72,17 +73,20 @@ class SNMPPoller:
             return
         self._running = True
         self._task = asyncio.create_task(self._poll_loop())
+        self._retention_task = asyncio.create_task(self._retention_loop())
 
     async def stop(self):
         """Stop the polling loop."""
         self._running = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
+        for t in [self._task, getattr(self, '_retention_task', None)]:
+            if t:
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+        self._task = None
+        self._retention_task = None
 
     async def _poll_loop(self):
         """Main polling loop."""
@@ -95,6 +99,17 @@ class SNMPPoller:
                 print(f"[SNMPPoller] Error in poll loop: {e}")
 
             await asyncio.sleep(self.poll_interval)
+
+    async def _retention_loop(self):
+        """Periodic cleanup of old poll history."""
+        while self._running:
+            try:
+                await asyncio.sleep(3600)  # hourly
+                await self.db_client.cleanup_poll_history(retention_days=30)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[SNMPPoller] Retention cleanup error: {e}")
 
     async def _poll_all_devices(self):
         """Poll all configured devices."""
@@ -211,11 +226,13 @@ class SNMPPoller:
     def _build_topology_links(
         self, devices: list[dict[str, Any]], results: list[PollResult]
     ):
-        """Build topology links from LLDP neighbor data."""
-        # Create IP -> device mapping
+        """Build topology links from LLDP neighbor data with multi-strategy matching."""
         ip_to_device = {d["ip_address"]: d for d in devices}
+        name_to_device: dict[str, Any] = {}
+        for d in devices:
+            if d.get("name"):
+                name_to_device[d["name"].lower()] = d
 
-        # Build links from LLDP data
         for device, result in zip(devices, results):
             if not result.success:
                 continue
@@ -224,26 +241,37 @@ class SNMPPoller:
                 neighbor_name = neighbor.get("neighbor_name", "")
                 neighbor_port = neighbor.get("neighbor_port", "")
 
-                # Try to find the neighbor device in our device list
-                # Match by name (sysName) or IP
                 target_device = None
-                for d in devices:
-                    if d["ip_address"] == device["ip_address"]:
-                        continue
-                    # Match by name substring or exact IP
-                    if neighbor_name.lower() in d.get("name", "").lower():
-                        target_device = d
-                        break
-                    if neighbor_name == d["ip_address"]:
-                        target_device = d
-                        break
+
+                if neighbor_name == device["ip_address"]:
+                    continue
+                if neighbor_name.lower() == device.get("name", "").lower():
+                    continue
+
+                if neighbor_name in ip_to_device:
+                    target_device = ip_to_device[neighbor_name]
+                elif neighbor_name.lower() in name_to_device:
+                    target_device = name_to_device[neighbor_name.lower()]
+                else:
+                    for d in devices:
+                        if d["ip_address"] == device["ip_address"]:
+                            continue
+                        d_name = d.get("name", "").lower()
+                        n_name = neighbor_name.lower()
+                        if d_name and n_name and (
+                            n_name == d_name or
+                            d_name in n_name or
+                            n_name in d_name
+                        ):
+                            target_device = d
+                            break
 
                 if target_device:
                     self._topology_builder.add_link(
                         source=device["ip_address"],
                         target=target_device["ip_address"],
                         source_port=neighbor_port,
-                        target_port="",  # Would need reverse LLDP query
+                        target_port="",
                     )
 
     def get_stats(self) -> dict[str, Any]:

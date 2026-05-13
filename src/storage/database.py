@@ -862,6 +862,14 @@ class AsyncPostgresClient:
             )
         return await self.get_network(network_id)
 
+    async def cleanup_poll_history(self, retention_days: int = 30):
+        """Delete poll history older than retention_days."""
+        async with self._get_connection() as conn:
+            await conn.execute(
+                "DELETE FROM poll_history WHERE polled_at < NOW() - make_interval(days => $1)",
+                retention_days,
+            )
+
     async def close(self):
         """Close database connections."""
         await self.disconnect()

@@ -5,8 +5,6 @@
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://typescriptlang.org)
 [![Tests](https://img.shields.io/badge/tests-105%20passed-brightgreen.svg)](https://github.com)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
 Network topology discovery, real-time monitoring, and management console — built for datacenter and homelab environments.
 
 ---
@@ -223,17 +221,6 @@ netops/
 
 ---
 
-## Project Stats
-
-| Metric | Value |
-|--------|-------|
-| Version | 1.0.0 |
-| Backend (Python) | ~5,800 lines |
-| Frontend (TypeScript/React) | ~4,300 lines |
-| Tests | 105 passed |
-| Python | 3.11+ |
-| Node | 20+ |
-
 ---
 
 ## CLI
@@ -248,6 +235,4 @@ curl -X POST http://localhost:8000/topology/simulate
 
 ---
 
-## License
 
-MIT

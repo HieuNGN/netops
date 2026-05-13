@@ -206,6 +206,13 @@ class AsyncSQLiteClient:
                 pass  # Column already exists
         await self._db.commit()
 
+    async def cleanup_poll_history(self, retention_days: int = 30):
+        """Delete poll history older than retention_days."""
+        import datetime
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=retention_days)).isoformat()
+        await self._db.execute("DELETE FROM poll_history WHERE polled_at < ?", (cutoff,))
+        await self._db.commit()
+
     async def close(self):
         """Close database connections."""
         await self.disconnect()
