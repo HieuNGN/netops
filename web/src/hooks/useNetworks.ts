@@ -20,6 +20,14 @@ export function useNetworks() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      networksApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['networks'] });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => networksApi.delete(id),
     onSuccess: () => {
@@ -39,9 +47,11 @@ export function useNetworks() {
     isLoading,
     error,
     createNetwork: createMutation.mutateAsync,
+    updateNetwork: updateMutation.mutateAsync,
     deleteNetwork: deleteMutation.mutateAsync,
     setDefaultNetwork: setDefaultMutation.mutateAsync,
     isCreating: createMutation.isPending,
+    isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
   };
 }

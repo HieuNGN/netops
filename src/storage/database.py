@@ -339,6 +339,9 @@ class AsyncPostgresClient:
                     updated TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            await conn.execute("ALTER TABLE networks ADD COLUMN IF NOT EXISTS network_type TEXT")
+            await conn.execute("ALTER TABLE networks ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'")
+            await conn.execute("ALTER TABLE networks ADD COLUMN IF NOT EXISTS last_scanned TIMESTAMPTZ DEFAULT NULL")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_networks_name ON networks(name)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_networks_default ON networks(is_default)")
 
@@ -756,16 +759,43 @@ class AsyncPostgresClient:
     # Network methods
 
     async def list_networks(self) -> list[dict[str, Any]]:
-        """List all networks."""
+        """List all networks with device_count."""
         async with self._get_connection() as conn:
-            rows = await conn.fetch("SELECT * FROM networks ORDER BY created DESC")
-            return [dict(row) for row in rows]
+            rows = await conn.fetch("""
+                SELECT n.*, COUNT(d.id) AS device_count
+                FROM networks n
+                LEFT JOIN devices d ON d.network_id = n.id
+                GROUP BY n.id
+                ORDER BY n.created DESC
+            """)
+            result = []
+            for row in rows:
+                d = dict(row)
+                if d.get("tags"):
+                    d["tags"] = json.loads(d["tags"]) if isinstance(d["tags"], str) else d["tags"]
+                else:
+                    d["tags"] = []
+                result.append(d)
+            return result
 
     async def get_network(self, network_id: str) -> Optional[dict[str, Any]]:
-        """Get network by ID."""
+        """Get network by ID with device_count."""
         async with self._get_connection() as conn:
-            row = await conn.fetchrow("SELECT * FROM networks WHERE id = $1", network_id)
-            return dict(row) if row else None
+            row = await conn.fetchrow("""
+                SELECT n.*, COUNT(d.id) AS device_count
+                FROM networks n
+                LEFT JOIN devices d ON d.network_id = n.id
+                WHERE n.id = $1
+                GROUP BY n.id
+            """, network_id)
+            if row:
+                d = dict(row)
+                if d.get("tags"):
+                    d["tags"] = json.loads(d["tags"]) if isinstance(d["tags"], str) else d["tags"]
+                else:
+                    d["tags"] = []
+                return d
+            return None
 
     async def create_network(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new network."""

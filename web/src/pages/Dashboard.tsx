@@ -1,4 +1,5 @@
-import { Activity, Server, Network, CheckCircle, AlertCircle, ArrowUpCircle, ArrowDownCircle, Bell, Check, X, History } from 'lucide-react';
+import { useState } from 'react';
+import { Activity, Server, Network, CheckCircle, AlertCircle, ArrowUpCircle, ArrowDownCircle, Bell, Check, X, History, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTopology } from '../hooks/useTopology';
 import { useDevices } from '../hooks/useDevices';
@@ -7,6 +8,7 @@ import { useActiveAlerts } from '../hooks/useActiveAlerts';
 import { usePollHistory } from '../hooks/usePollHistory';
 import { useTopologyHistory } from '../hooks/useTopologyHistory';
 import { NetworkPicker } from '../components/NetworkPicker';
+import { NetworksConsole } from '../components/NetworksConsole';
 import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from 'recharts';
 
 function StatCard({ title, value, subtext, icon: Icon, color, trend }: any) {
@@ -43,6 +45,7 @@ const generatePollData = () => {
 };
 
 export function Dashboard() {
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const { topology } = useTopology();
   const { devices } = useDevices();
   const { checks } = useChecks();
@@ -146,7 +149,18 @@ export function Dashboard() {
       {/* Network Management */}
       <div className="mb-8 bg-white dark:bg-[#262626] rounded-sm shadow-sm border border-[#e0e0e0] dark:border-[#393939] p-6 max-w-md">
         <NetworkPicker />
+        <div className="mt-3 pt-3 border-t border-[#e0e0e0] dark:border-[#393939]">
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-[#0f62fe] text-white rounded-sm hover:bg-[#0043ce]"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Manage Networks
+          </button>
+        </div>
       </div>
+
+      <NetworksConsole open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Devices */}

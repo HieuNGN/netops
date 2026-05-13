@@ -21,6 +21,10 @@ export interface Network {
   cidr: string;
   description: string;
   is_default: boolean;
+  network_type: string | null;
+  tags: string[];
+  last_scanned: string | null;
+  device_count: number;
   created: string;
   updated: string;
 }

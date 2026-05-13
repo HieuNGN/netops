@@ -157,6 +157,8 @@ class NetworkUpdate(BaseModel):
     cidr: Optional[str] = None
     description: Optional[str] = None
     is_default: Optional[bool] = None
+    network_type: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 app = FastAPI(
@@ -452,6 +454,8 @@ async def create_network(network: NetworkCreate):
     return await db_client.create_network(network.model_dump())
 
 
+VALID_NETWORK_TYPES = {"lan", "wan", "wifi", "sfp", "console", "bmc", "mgmt", "dmz", "vlan", "vpn", "custom"}
+
 @app.put("/networks/{network_id}")
 async def update_network(network_id: str, network: NetworkUpdate):
     """Update a network."""
@@ -460,8 +464,22 @@ async def update_network(network_id: str, network: NetworkUpdate):
     existing = await db_client.get_network(network_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Network not found")
-    update_data = {k: v for k, v in network.model_dump().items() if v is not None}
-    if update_data:  # Don't return None
+
+    update_data: dict[str, Any] = {k: v for k, v in network.model_dump().items() if v is not None}
+
+    if "network_type" in update_data and update_data["network_type"] not in VALID_NETWORK_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid network_type. Must be one of: {VALID_NETWORK_TYPES}")
+
+    if "tags" in update_data:
+        tags = update_data["tags"]
+        if len(tags) > 5:
+            raise HTTPException(status_code=400, detail="Maximum 5 tags allowed")
+        for tag in tags:
+            if len(tag) > 20:
+                raise HTTPException(status_code=400, detail="Tags must be 20 characters or less")
+        update_data["tags"] = json.dumps(tags)
+
+    if update_data:
         return await db_client.update_network(network_id, update_data)
     return existing
 

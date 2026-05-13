@@ -169,6 +169,9 @@ class AsyncSQLiteClient:
                 cidr TEXT,
                 description TEXT,
                 is_default INTEGER DEFAULT 0,
+                network_type TEXT,
+                tags TEXT DEFAULT '[]',
+                last_scanned TEXT,
                 created TEXT DEFAULT (datetime('now')),
                 updated TEXT DEFAULT (datetime('now'))
             );
@@ -189,6 +192,15 @@ class AsyncSQLiteClient:
             try:
                 await self._db.execute(
                     f"ALTER TABLE {table} ADD COLUMN network_id TEXT"
+                )
+            except Exception:
+                pass  # Column already exists
+
+        # Migrate networks: add new columns if missing
+        for col, default in [("network_type", "TEXT"), ("tags", "TEXT DEFAULT '[]'"), ("last_scanned", "TEXT")]:
+            try:
+                await self._db.execute(
+                    f"ALTER TABLE networks ADD COLUMN {col} {default}"
                 )
             except Exception:
                 pass  # Column already exists
@@ -273,19 +285,43 @@ class AsyncSQLiteClient:
 
     # Network methods
     async def list_networks(self) -> list[dict[str, Any]]:
-        """List all networks ordered by name."""
-        cursor = await self._db.execute("SELECT * FROM networks ORDER BY name")
+        """List all networks with device_count."""
+        cursor = await self._db.execute("""
+            SELECT n.*, COUNT(d.id) AS device_count
+            FROM networks n
+            LEFT JOIN devices d ON d.network_id = n.id
+            GROUP BY n.id
+            ORDER BY n.name
+        """)
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("tags"):
+                d["tags"] = json.loads(d["tags"]) if isinstance(d["tags"], str) else d["tags"]
+            else:
+                d["tags"] = []
+            result.append(d)
+        return result
 
     async def get_network(self, network_id: str) -> Optional[dict[str, Any]]:
-        """Get network by id or name."""
-        cursor = await self._db.execute(
-            "SELECT * FROM networks WHERE id = ? OR name = ?",
-            (network_id, network_id)
-        )
+        """Get network by id or name with device_count."""
+        cursor = await self._db.execute("""
+            SELECT n.*, COUNT(d.id) AS device_count
+            FROM networks n
+            LEFT JOIN devices d ON d.network_id = n.id
+            WHERE n.id = ? OR n.name = ?
+            GROUP BY n.id
+        """, (network_id, network_id))
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if row:
+            d = dict(row)
+            if d.get("tags"):
+                d["tags"] = json.loads(d["tags"]) if isinstance(d["tags"], str) else d["tags"]
+            else:
+                d["tags"] = []
+            return d
+        return None
 
     async def create_network(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new network."""
