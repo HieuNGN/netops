@@ -126,7 +126,7 @@ export const devicesApi = {
 export const topologyApi = {
   get: () => apiClient.get<TopologyData>('/topology'),
   refresh: () => apiClient.post('/topology/refresh'),
-  getStreamUrl: () => `${import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')}/topology/stream`,
+  getStreamUrl: () => `${import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')}/topology/stream`,
   history: (limit?: number) =>
     apiClient.get<{ events: TopologyHistoryEvent[] }>('/topology/history', { params: { limit } }),
 };

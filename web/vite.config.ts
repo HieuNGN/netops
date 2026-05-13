@@ -16,6 +16,7 @@ export default defineConfig({
       '/stats': { target: 'http://localhost:8000', changeOrigin: true },
       '/discover': { target: 'http://localhost:8000', changeOrigin: true },
       '/networks': { target: 'http://localhost:8000', changeOrigin: true },
+      '/api': { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
 })

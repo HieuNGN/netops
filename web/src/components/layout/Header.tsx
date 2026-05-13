@@ -1,6 +1,7 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Network, Activity, Server, AlertTriangle, Settings, History } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Network, Activity, Server, AlertTriangle, Settings, History, LogOut } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import { useAuth } from '../../hooks/useAuth';
 import { ConnectionStatus } from './ConnectionStatus';
 
 const navItems = [
@@ -16,6 +17,10 @@ const navItems = [
 export function Header() {
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
+  const { username, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
     <header className="bg-white dark:bg-[#161616] border-b border-[#e0e0e0] dark:border-[#393939]">
@@ -49,6 +54,13 @@ export function Header() {
 
             <div className="flex items-center space-x-3 ml-2">
               <ConnectionStatus />
+
+              {username && (
+                <button onClick={handleLogout} className="flex items-center gap-1 px-2 py-1.5 text-xs text-[#525252] dark:text-[#a8a8a8] hover:bg-[#f4f4f4] dark:hover:bg-[#262626] rounded-sm" title="Logout">
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{username}</span>
+                </button>
+              )}
 
               {/* Theme Toggle TrackPoint */}
               <button

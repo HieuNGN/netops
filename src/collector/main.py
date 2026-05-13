@@ -5,16 +5,18 @@ import json
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import ServerConfig
 from .discovery import add_discovered_devices
 from .snmp_poller import SNMPPoller
 from .topology_builder import TopologyBuilder
 from .utils import logger
+from src.api.services.auth import hash_password, verify_password, create_access_token, decode_token, current_user as need_auth
 
 # Prometheus metrics
 METRICS_POLLS = Counter("netops_polls_total", "Total number of SNMP polls")
@@ -62,11 +64,31 @@ async def lifespan(app: FastAPI):
     alert_service = AlertService(db_client)
     logger.info("Alert service initialized")
 
+    # Bootstrap default admin user if none exists
+    try:
+        admin = await db_client.get_user_by_username("admin")
+        if not admin:
+            await db_client.create_user("admin", hash_password("admin"))
+            logger.info("Default admin user created (admin / admin)")
+    except Exception as e:
+        logger.warning(f"Failed to bootstrap admin user: {e}")
+
+    # Read config from DB, fall back to defaults
+    config = {}
+    try:
+        config = await db_client.get_settings()
+    except Exception:
+        pass
+
+    poll_interval = int(config.get("topology_interval", 30))
+    snmp_timeout = int(config.get("snmp_timeout", 5))
+    snmp_retries = int(config.get("snmp_retries", 3))
+
     # Initialize and start poller
-    poller = SNMPPoller(db_client, poll_interval=30)
+    poller = SNMPPoller(db_client, poll_interval=poll_interval, timeout=snmp_timeout, retries=snmp_retries)
     poller.set_topology_change_handler(on_topology_change)
     await poller.start()
-    logger.info("SNMP poller started with 30s interval")
+    logger.info(f"SNMP poller started with {poll_interval}s interval, timeout={snmp_timeout}s, retries={snmp_retries}")
 
     # Initialize and start service check scheduler
     from src.collector.checks.scheduler import CheckScheduler
@@ -178,6 +200,57 @@ async def health_check():
     if alert_service:
         result["alert_service"] = {"initialized": True}
     return result
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ConfigUpdate(BaseModel):
+    topology_interval: Optional[int] = None
+    check_interval: Optional[int] = None
+    snmp_timeout: Optional[int] = None
+    snmp_retries: Optional[int] = None
+    snmp_community: Optional[str] = None
+
+
+@app.post("/api/auth/login")
+async def auth_login(req: LoginRequest):
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    user = await db_client.get_user_by_username(req.username)
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_access_token(req.username)
+    resp = JSONResponse({"token": token, "username": req.username, "role": user.get("role", "admin")})
+    resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400)
+    return resp
+
+
+@app.get("/api/auth/me")
+async def auth_me(user: str = Depends(need_auth)):
+    return {"username": user, "authenticated": True}
+
+
+@app.get("/api/config")
+async def get_config(user: str = Depends(need_auth)):
+    if not db_client:
+        raise HTTPException(status_code=503)
+    return await db_client.get_settings()
+
+
+@app.put("/api/config")
+async def save_config(cfg: ConfigUpdate, user: str = Depends(need_auth)):
+    if not db_client:
+        raise HTTPException(status_code=503)
+    existing = await db_client.get_settings()
+    for key in ("topology_interval", "check_interval", "snmp_timeout", "snmp_retries", "snmp_community"):
+        v = getattr(cfg, key, None)
+        if v is not None:
+            existing[key] = v
+    await db_client.update_settings(existing)
+    return {"saved": True, "config": existing}
 
 
 @app.get("/metrics")

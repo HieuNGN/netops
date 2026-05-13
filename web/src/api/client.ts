@@ -12,10 +12,13 @@ export const apiClient = axios.create({
   timeout: 10000,
 });
 
-// Request interceptor for logging
+// Request interceptor — attach token
 apiClient.interceptors.request.use(
   (config) => {
-    console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => Promise.reject(error)

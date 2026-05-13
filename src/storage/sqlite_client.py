@@ -203,7 +203,26 @@ class AsyncSQLiteClient:
                     f"ALTER TABLE networks ADD COLUMN {col} {default}"
                 )
             except Exception:
-                pass  # Column already exists
+                pass
+
+        # Create users and app_settings tables
+        await self._db.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT DEFAULT 'admin',
+                created TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated TEXT DEFAULT (datetime('now'))
+            );
+        """)
+        cursor = await self._db.execute("SELECT 1 FROM app_settings WHERE key = 'config'")
+        if not await cursor.fetchone():
+            await self._db.execute("INSERT INTO app_settings (key, value) VALUES ('config', '{}')")
         await self._db.commit()
 
     async def cleanup_poll_history(self, retention_days: int = 30):
@@ -211,6 +230,34 @@ class AsyncSQLiteClient:
         import datetime
         cutoff = (datetime.datetime.now() - datetime.timedelta(days=retention_days)).isoformat()
         await self._db.execute("DELETE FROM poll_history WHERE polled_at < ?", (cutoff,))
+        await self._db.commit()
+
+    async def create_user(self, username: str, password_hash: str) -> dict[str, Any]:
+        uid = str(uuid.uuid4())
+        await self._db.execute(
+            "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
+            (uid, username, password_hash),
+        )
+        await self._db.commit()
+        return {"id": uid, "username": username, "role": "admin"}
+
+    async def get_user_by_username(self, username: str) -> Optional[dict[str, Any]]:
+        cursor = await self._db.execute("SELECT * FROM users WHERE username = ?", (username,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_settings(self) -> dict[str, Any]:
+        cursor = await self._db.execute("SELECT value FROM app_settings WHERE key = 'config'")
+        row = await cursor.fetchone()
+        if row:
+            return json.loads(row["value"]) if isinstance(row["value"], str) else row["value"]
+        return {}
+
+    async def update_settings(self, data: dict[str, Any]):
+        await self._db.execute(
+            "UPDATE app_settings SET value = ?, updated = datetime('now') WHERE key = 'config'",
+            (json.dumps(data),),
+        )
         await self._db.commit()
 
     async def close(self):

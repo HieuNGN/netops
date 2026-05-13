@@ -214,12 +214,13 @@ netops/
 | React dashboard | Done | SSE streaming, charts, topology graph, full CRUD |
 | CPU optimization | Done | batching, semaphores, single-tick scheduler, `--reload-dir` fix (1.2% idle) |
 | Network management | Done | slide-out drawer, 11 types, inline rename, tags, device counts |
+| Poll history retention | Done | 30-day TTL, hourly cleanup loop |
+| LLDP correlation | Done | multi-strategy matching (IP, name, substring) |
 | Docker | Done | multi-container compose, nginx, health checks |
-| Auth & RBAC | Planned | JWT, login page, role-based access |
+| Auth & RBAC | Done | JWT login, protected routes, admin bootstrap |
+| Dynamic config | Done | settings → DB → poller read on startup |
 | SNMPv3 | Planned | auth + privacy protocols |
 | Distributed agents | Planned | remote pollers, central aggregator |
-
----
 
 ---
 

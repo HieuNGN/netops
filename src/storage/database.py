@@ -353,6 +353,27 @@ class AsyncPostgresClient:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_network ON topology_nodes(network_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_links_network ON topology_links(network_id)")
 
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT DEFAULT 'admin',
+                    created TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('config', '{}') ON CONFLICT (key) DO NOTHING"
+            )
+
     async def list_devices(
         self, limit: Optional[int] = None, offset: Optional[int] = None
     ) -> list[dict[str, Any]]:
@@ -868,6 +889,35 @@ class AsyncPostgresClient:
             await conn.execute(
                 "DELETE FROM poll_history WHERE polled_at < NOW() - make_interval(days => $1)",
                 retention_days,
+            )
+
+    async def create_user(self, username: str, password_hash: str) -> dict[str, Any]:
+        async with self._get_connection() as conn:
+            import uuid as _uuid
+            uid = str(_uuid.uuid4())
+            await conn.execute(
+                "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)",
+                uid, username, password_hash,
+            )
+            return {"id": uid, "username": username, "role": "admin"}
+
+    async def get_user_by_username(self, username: str) -> Optional[dict[str, Any]]:
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow("SELECT * FROM users WHERE username = $1", username)
+            return dict(row) if row else None
+
+    async def get_settings(self) -> dict[str, Any]:
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow("SELECT value FROM app_settings WHERE key = 'config'")
+            if row:
+                return json.loads(row["value"]) if isinstance(row["value"], str) else row["value"]
+            return {}
+
+    async def update_settings(self, data: dict[str, Any]):
+        async with self._get_connection() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET value = $1, updated = NOW() WHERE key = 'config'",
+                json.dumps(data),
             )
 
     async def close(self):
