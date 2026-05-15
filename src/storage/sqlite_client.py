@@ -44,6 +44,12 @@ class AsyncSQLiteClient:
                 sys_descr TEXT,
                 discovery_method TEXT DEFAULT 'manual',
                 network_id TEXT,
+                snmp_version TEXT DEFAULT '2c',
+                snmpv3_username TEXT,
+                snmpv3_auth_protocol TEXT,
+                snmpv3_auth_key TEXT,
+                snmpv3_priv_protocol TEXT,
+                snmpv3_priv_key TEXT,
                 last_polled TEXT,
                 created TEXT DEFAULT (datetime('now')),
                 updated TEXT DEFAULT (datetime('now'))

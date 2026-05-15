@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from .spike_snmp import get_sys_descr, walk_lldp_neighbors
+from .spike_snmp import get_sys_descr_async, walk_lldp_neighbors_async, _build_auth
 from .topology_builder import TopologyBuilder
 
 
@@ -151,7 +151,7 @@ class SNMPPoller:
             await self._on_topology_change(changes, current_topology)
 
     async def _poll_device(self, device: dict[str, Any]) -> PollResult:
-        """Poll a single device."""
+        """Poll a single device with v2c or v3 support."""
         import time
 
         self.stats.total_polls += 1
@@ -159,22 +159,11 @@ class SNMPPoller:
 
         try:
             ip = device["ip_address"]
-            community = device.get("community", "public")
 
-            # Cap concurrent SNMP polls to avoid thread pool exhaustion
             async with self._poll_semaphore:
-                # Run SNMP queries in executor to avoid blocking
-                loop = asyncio.get_event_loop()
-
-                # Get sysDescr
-                sys_descr = await loop.run_in_executor(
-                    None, get_sys_descr, ip, community
-                )
-
-                # Get LLDP neighbors
-                neighbors = await loop.run_in_executor(
-                    None, walk_lldp_neighbors, ip, community
-                )
+                auth = _build_auth(device)
+                sys_descr = await get_sys_descr_async(ip, auth)
+                neighbors = await walk_lldp_neighbors_async(ip, auth)
 
             response_time = (time.time() - start_time) * 1000
             self.stats.add_response_time(response_time)

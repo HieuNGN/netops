@@ -13,6 +13,12 @@ export interface Device {
   created: string;
   updated: string;
   network_id?: string;
+  snmp_version: string;
+  snmpv3_username: string | null;
+  snmpv3_auth_protocol: string | null;
+  snmpv3_auth_key: string | null;
+  snmpv3_priv_protocol: string | null;
+  snmpv3_priv_key: string | null;
 }
 
 export interface Network {

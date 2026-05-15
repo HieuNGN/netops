@@ -193,6 +193,13 @@ class AsyncPostgresClient:
             await conn.execute("""
                 ALTER TABLE devices ADD COLUMN IF NOT EXISTS discovery_method TEXT DEFAULT 'manual'
             """)
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS network_id TEXT")
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_version TEXT DEFAULT '2c'")
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_username TEXT")
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_auth_protocol TEXT")
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_auth_key TEXT")
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_priv_protocol TEXT")
+            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_priv_key TEXT")
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS topology_nodes (

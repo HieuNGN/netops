@@ -139,12 +139,35 @@ class DeviceCreate(BaseModel):
     name: str
     ip_address: str
     community: str = "public"
+    snmp_version: str = "2c"
+    snmpv3_username: Optional[str] = None
+    snmpv3_auth_protocol: Optional[str] = None
+    snmpv3_auth_key: Optional[str] = None
+    snmpv3_priv_protocol: Optional[str] = None
+    snmpv3_priv_key: Optional[str] = None
 
 
 class DeviceUpdate(BaseModel):
     name: Optional[str] = None
     community: Optional[str] = None
     status: Optional[str] = None
+    snmp_version: Optional[str] = None
+    snmpv3_username: Optional[str] = None
+    snmpv3_auth_protocol: Optional[str] = None
+    snmpv3_auth_key: Optional[str] = None
+    snmpv3_priv_protocol: Optional[str] = None
+    snmpv3_priv_key: Optional[str] = None
+
+
+class BulkImportRequest(BaseModel):
+    devices: list[DeviceCreate]
+
+
+class BulkImportResult(BaseModel):
+    total: int
+    created: int
+    skipped: int
+    errors: list[str]
 
 
 class AlertConfigCreate(BaseModel):
@@ -458,19 +481,33 @@ async def create_device(device: DeviceCreate):
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    # Check if device already exists
     existing = await db_client.get_device(device.ip_address)
     if existing:
         raise HTTPException(status_code=409, detail="Device already exists")
 
-    return await db_client.create_device(
-        {
-            "name": device.name,
-            "ip_address": device.ip_address,
-            "community": device.community,
-            "status": "unknown",
-        }
-    )
+    return await db_client.create_device(device.model_dump() | {"status": "unknown"})
+
+
+@app.post("/devices/import")
+async def bulk_import(req: BulkImportRequest):
+    """Bulk import devices from JSON/CSV."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    result = BulkImportResult(total=len(req.devices), created=0, skipped=0, errors=[])
+
+    for d in req.devices:
+        try:
+            existing = await db_client.get_device(d.ip_address)
+            if existing:
+                result.skipped += 1
+                continue
+            await db_client.create_device(d.model_dump() | {"status": "unknown"})
+            result.created += 1
+        except Exception as e:
+            result.errors.append(f"{d.ip_address}: {e}")
+
+    return result
 
 
 @app.put("/devices/{device_id}")

@@ -219,7 +219,8 @@ netops/
 | Docker | Done | multi-container compose, nginx, health checks |
 | Auth & RBAC | Done | JWT login, protected routes, admin bootstrap |
 | Dynamic config | Done | settings → DB → poller read on startup |
-| SNMPv3 | Planned | auth + privacy protocols |
+| SNMPv3 | Done | UsmUserData, auth/priv protocols, per-device version |
+| Bulk device import | Done | CSV/JSON upload + paste, parse + POST /devices/import |
 | Distributed agents | Planned | remote pollers, central aggregator |
 
 ---
