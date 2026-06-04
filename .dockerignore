@@ -1,0 +1,77 @@
+# NetOps .dockerignore
+# Placed in project root to reduce build context size
+
+# Git
+.git/
+.gitignore
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+web/.env
+web/.env.*
+
+# Database files (local SQLite)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Node modules and build outputs
+node_modules/
+web/node_modules/
+web/dist/
+web/build/
+*.tsbuildinfo
+
+# IDE & editor
+.claude/
+.obsidian/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs (internal plans)
+docs/
+
+# Logs
+*.log
+/tmp/
+
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+.pytest_cache/
+
+# Docker itself (avoid recursion)
+docker/.env
+docker/.env.*
+docker/*.log
+
+# Scripts that are dev-only (optional; keep if needed in image)
+# scripts/autofix.sh
+
+# Skills symlink
+skills/

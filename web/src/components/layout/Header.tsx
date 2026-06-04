@@ -23,13 +23,13 @@ export function Header() {
   const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
-    <header className="bg-white dark:bg-[#161616] border-b border-[#e0e0e0] dark:border-[#393939]">
+    <header className="bg-background border-b border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <Link to="/" className="flex items-center space-x-2">
-              <Network className="h-8 w-8 text-[#da1e28]" />
-              <span className="text-xl font-bold text-[#161616] dark:text-white">NetOps</span>
+              <Network className="h-8 w-8 text-destructive" />
+              <span className="text-xl font-bold text-foreground">NetOps</span>
             </Link>
           </div>
 
@@ -42,8 +42,8 @@ export function Header() {
                   to={item.path}
                   className={`flex items-center space-x-2 px-3 py-2 rounded-sm text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-[#161616] text-white dark:bg-[#f4f4f4] dark:text-[#161616]'
-                      : 'text-[#525252] dark:text-[#a8a8a8] hover:bg-[#f4f4f4] dark:hover:bg-[#262626]'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-surface-hover'
                   }`}
                 >
                   <item.icon className="h-4 w-4" />
@@ -56,7 +56,7 @@ export function Header() {
               <ConnectionStatus />
 
               {username && (
-                <button onClick={handleLogout} className="flex items-center gap-1 px-2 py-1.5 text-xs text-[#525252] dark:text-[#a8a8a8] hover:bg-[#f4f4f4] dark:hover:bg-[#262626] rounded-sm" title="Logout">
+                <button onClick={handleLogout} className="flex items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground hover:bg-surface-hover rounded-sm" title="Logout">
                   <LogOut className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">{username}</span>
                 </button>
@@ -76,8 +76,8 @@ export function Header() {
                     w-5 h-5 rounded-full
                     transition-all duration-200 ease-out
                     ${isDark
-                      ? 'bg-[#c41e3a] shadow-[0_1px_3px_rgba(0,0,0,0.4)]'
-                      : 'bg-[#e0e0e0] shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]'
+                      ? 'bg-destructive shadow-[0_1px_3px_var(--canvas-shadow)]'
+                      : 'bg-surface-pressed shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]'
                     }
                     group-hover:scale-110 group-active:scale-95
                   `}

@@ -21,8 +21,17 @@ class AlertService:
         # Active alerts keyed by (alert_type, target_id) to prevent duplicates
         self._active_alerts: dict[str, dict[str, Any]] = {}
 
-    def get_notification_channel(self, channel_type: str, config: dict[str, Any]) -> Optional[NotificationChannel]:
-        """Factory method to create notification channel instances."""
+    async def get_notification_channel(
+        self, channel_type: str, config: dict[str, Any],
+        integration_id: Optional[str] = None,
+        db_client: Any = None,
+    ) -> Optional[NotificationChannel]:
+        """Factory method to create notification channel instances.
+
+        If integration_id is provided, merges integration secrets_json (base)
+        with the per-rule config (overrides). Uses db_client passed in or
+        self.db_client if db_client is None.
+        """
         channels = {
             "webhook": WebhookNotification,
             "slack": SlackNotification,
@@ -35,7 +44,16 @@ class AlertService:
         if not channel_class:
             return None
 
-        return channel_class(config)
+        effective_config: dict[str, Any] = dict(config or {})
+        if integration_id:
+            target_db = db_client if db_client is not None else self.db_client
+            if target_db and hasattr(target_db, "get_integration"):
+                integration = await target_db.get_integration(integration_id)
+                if integration and integration.get("secrets_json"):
+                    base = dict(integration["secrets_json"])
+                    base.update(effective_config)
+                    effective_config = base
+        return channel_class(effective_config)
 
     async def evaluate_topology_change(
         self,
@@ -146,9 +164,10 @@ class AlertService:
                     continue
 
                 # Create notification channel
-                channel = self.get_notification_channel(
+                channel = await self.get_notification_channel(
                     config.get("channel", "webhook"),
                     config.get("config_json", {}),
+                    integration_id=config.get("integration_id"),
                 )
 
                 if not channel:

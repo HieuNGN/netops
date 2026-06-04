@@ -39,6 +39,7 @@ export interface DiscoveryResult {
   scanned: number;
   found: number;
   added: number;
+  cleared?: number;
   by_method: Record<string, number>;
 }
 
@@ -99,6 +100,18 @@ export interface AlertConfig {
   alert_type: string;
   channel: string;
   config_json: Record<string, any>;
+  integration_id: string | null;
+  enabled: boolean;
+  created: string;
+}
+
+export type IntegrationType = 'webhook' | 'slack' | 'telegram' | 'whatsapp' | 'email';
+
+export interface IntegrationConfig {
+  id: string;
+  type: IntegrationType;
+  name: string;
+  secrets_json: Record<string, any>;
   enabled: boolean;
   created: string;
 }
@@ -114,34 +127,47 @@ export interface TopologyHistoryEvent {
   recorded_at: string;
 }
 
-// Devices API
+// Devices API — all calls prefixed with /api so they don't collide
+// with SPA page paths (/devices, /checks, /alerts, /topology).
+// Nginx / Vite dev-proxy strips the /api prefix when forwarding
+// to FastAPI, which mounts endpoints at the bare path.
 export const devicesApi = {
   list: (limit?: number, offset?: number) =>
-    apiClient.get<Device[]>('/devices', { params: { limit, offset } }),
-  get: (id: string) => apiClient.get<Device>(`/devices/${id}`),
+    apiClient.get<Device[]>('/api/devices', { params: { limit, offset } }),
+  get: (id: string) => apiClient.get<Device>(`/api/devices/${id}`),
   create: (data: { name: string; ip_address: string; community: string }) =>
-    apiClient.post<Device>('/devices', data),
+    apiClient.post<Device>('/api/devices', data),
+  import: (devices: any[]) => apiClient.post('/api/devices/import', { devices }),
   update: (id: string, data: Partial<Device>) =>
-    apiClient.put<Device>(`/devices/${id}`, data),
-  delete: (id: string) => apiClient.delete(`/devices/${id}`),
+    apiClient.put<Device>(`/api/devices/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/api/devices/${id}`),
+  clearAll: () => apiClient.delete<{ status: string; removed: number }>('/api/devices'),
+  clearMocks: () => apiClient.post<{ status: string; matched: number; removed: number }>('/api/devices/clear-mocks'),
+  rescan: (data: { network_range: string; community?: string; method?: string; replace?: boolean }) =>
+    apiClient.post<DiscoveryResult>('/api/discover/rescan', data, { timeout: 120000 }),
   discover: (data: { network_range: string; community?: string; method?: string }) =>
-    apiClient.post<DiscoveryResult>('/discover', data, { timeout: 60000 }),
+    apiClient.post<DiscoveryResult>('/api/discover', data, { timeout: 60000 }),
+  getEventsStreamUrl: () => `${import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || '')}/api/events/stream`,
 };
 
 // Topology API
 export const topologyApi = {
-  get: () => apiClient.get<TopologyData>('/topology'),
-  refresh: () => apiClient.post('/topology/refresh'),
-  getStreamUrl: () => `${import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000')}/topology/stream`,
-  history: (limit?: number) =>
-    apiClient.get<{ events: TopologyHistoryEvent[] }>('/topology/history', { params: { limit } }),
+  get: () => apiClient.get<TopologyData>('/api/topology'),
+  refresh: () => apiClient.post('/api/topology/refresh'),
+  getStreamUrl: () => `${import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || '')}/api/topology/stream`,
+  history: (limit?: number, event_type?: string, from_time?: string, to_time?: string, offset?: number) =>
+    apiClient.get<{ events: TopologyHistoryEvent[]; total: number }>('/api/topology/history', {
+      params: { limit, event_type, from_time, to_time, offset },
+    }),
+  snapshot: (eventId: number) =>
+    apiClient.get<{ event: any; topology: TopologyData; current: TopologyData }>(`/api/topology/snapshot/${eventId}`),
 };
 
 // Service Checks API
 export const checksApi = {
   list: (limit?: number, offset?: number) =>
-    apiClient.get<ServiceCheck[]>('/checks', { params: { limit, offset } }),
-  get: (id: string) => apiClient.get<ServiceCheck>(`/checks/${id}`),
+    apiClient.get<ServiceCheck[]>('/api/checks', { params: { limit, offset } }),
+  get: (id: string) => apiClient.get<ServiceCheck>(`/api/checks/${id}`),
   create: (data: {
     name: string;
     check_type: string;
@@ -150,14 +176,14 @@ export const checksApi = {
     timeout_seconds?: number;
     config: Record<string, any>;
     enabled?: boolean;
-  }) => apiClient.post<ServiceCheck>('/checks', data),
+  }) => apiClient.post<ServiceCheck>('/api/checks', data),
   update: (id: string, data: Partial<ServiceCheck>) =>
-    apiClient.put<ServiceCheck>(`/checks/${id}`, data),
-  delete: (id: string) => apiClient.delete(`/checks/${id}`),
-  run: (id: string) => apiClient.post<CheckResult>(`/checks/${id}/run`),
+    apiClient.put<ServiceCheck>(`/api/checks/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/api/checks/${id}`),
+  run: (id: string) => apiClient.post<CheckResult>(`/api/checks/${id}/run`),
   results: (id: string, limit?: number) =>
-    apiClient.get<CheckResult[]>(`/checks/${id}/results`, { params: { limit } }),
-  stats: () => apiClient.get('/checks/stats'),
+    apiClient.get<CheckResult[]>(`/api/checks/${id}/results`, { params: { limit } }),
+  stats: () => apiClient.get('/api/checks/stats'),
 };
 
 export interface ActiveAlert {
@@ -174,23 +200,23 @@ export interface ActiveAlert {
 // Alerts API
 export const alertsApi = {
   list: (limit?: number, offset?: number) =>
-    apiClient.get<AlertConfig[]>('/alerts', { params: { limit, offset } }),
+    apiClient.get<AlertConfig[]>('/api/alerts', { params: { limit, offset } }),
   create: (data: {
     name: string;
     alert_type: string;
     channel: string;
     config: Record<string, any>;
     enabled?: boolean;
-  }) => apiClient.post<AlertConfig>('/alerts', data),
+  }) => apiClient.post<AlertConfig>('/api/alerts', data),
   update: (id: string, data: Partial<AlertConfig>) =>
-    apiClient.put<AlertConfig>(`/alerts/${id}`, data),
-  delete: (id: string) => apiClient.delete(`/alerts/${id}`),
-  test: (id: string) => apiClient.post(`/alerts/${id}/test`),
+    apiClient.put<AlertConfig>(`/api/alerts/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/api/alerts/${id}`),
+  test: (id: string) => apiClient.post(`/api/alerts/${id}/test`),
   history: (limit?: number) =>
-    apiClient.get('/alerts/history', { params: { limit } }),
-  active: () => apiClient.get<{ alerts: ActiveAlert[] }>('/alerts/active'),
-  acknowledge: (key: string) => apiClient.post(`/alerts/active/${key}/acknowledge`),
-  resolve: (key: string) => apiClient.post(`/alerts/active/${key}/resolve`),
+    apiClient.get('/api/alerts/history', { params: { limit } }),
+  active: () => apiClient.get<{ alerts: ActiveAlert[] }>('/api/alerts/active'),
+  acknowledge: (key: string) => apiClient.post(`/api/alerts/active/${key}/acknowledge`),
+  resolve: (key: string) => apiClient.post(`/api/alerts/active/${key}/resolve`),
 };
 
 export interface MaintenanceWindow {
@@ -205,30 +231,44 @@ export interface MaintenanceWindow {
 // Maintenance Windows API
 export const maintenanceWindowsApi = {
   list: (limit?: number, offset?: number) =>
-    apiClient.get<{ windows: MaintenanceWindow[] }>('/maintenance-windows', { params: { limit, offset } }),
+    apiClient.get<{ windows: MaintenanceWindow[] }>('/api/maintenance-windows', { params: { limit, offset } }),
   create: (data: { name: string; start_time: string; end_time: string; description?: string }) =>
-    apiClient.post<{ window: MaintenanceWindow }>('/maintenance-windows', data),
-  delete: (id: string) => apiClient.delete(`/maintenance-windows/${id}`),
+    apiClient.post<{ window: MaintenanceWindow }>('/api/maintenance-windows', data),
+  delete: (id: string) => apiClient.delete(`/api/maintenance-windows/${id}`),
+};
+
+// Integrations API — global notification credentials (Telegram bot, Slack webhook, etc.)
+export const integrationsApi = {
+  list: (type?: IntegrationType) =>
+    apiClient.get<IntegrationConfig[]>('/api/integrations', { params: { type } }),
+  get: (id: string) => apiClient.get<IntegrationConfig>(`/api/integrations/${id}`),
+  create: (data: { type: IntegrationType; name: string; secrets_json: Record<string, any>; enabled?: boolean }) =>
+    apiClient.post<IntegrationConfig>('/api/integrations', data),
+  update: (id: string, data: Partial<{ name: string; secrets_json: Record<string, any>; enabled: boolean }>) =>
+    apiClient.put<IntegrationConfig>(`/api/integrations/${id}`, data),
+  delete: (id: string) => apiClient.delete<{ status: string; id: string }>(`/api/integrations/${id}`),
+  test: (id: string) =>
+    apiClient.post<{ sent: boolean; type: string }>(`/api/integrations/${id}/test`),
 };
 
 // Networks API
 export const networksApi = {
-  list: () => apiClient.get<Network[]>('/networks'),
-  get: (id: string) => apiClient.get<Network>(`/networks/${id}`),
+  list: () => apiClient.get<Network[]>('/api/networks'),
+  get: (id: string) => apiClient.get<Network>(`/api/networks/${id}`),
   create: (data: { name: string; cidr?: string; description?: string }) =>
-    apiClient.post<Network>('/networks', data),
+    apiClient.post<Network>('/api/networks', data),
   update: (id: string, data: Partial<Network>) =>
-    apiClient.put<Network>(`/networks/${id}`, data),
-  delete: (id: string) => apiClient.delete(`/networks/${id}`),
-  setDefault: (id: string) => apiClient.post<Network>(`/networks/${id}/default`),
+    apiClient.put<Network>(`/api/networks/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/api/networks/${id}`),
+  setDefault: (id: string) => apiClient.post<Network>(`/api/networks/${id}/default`),
   assignDevice: (deviceId: string, networkId: string) =>
-    apiClient.post<Device>(`/devices/${deviceId}/network/${networkId}`),
+    apiClient.post<Device>(`/api/devices/${deviceId}/network/${networkId}`),
 };
 
-// Health API
+// Health / Stats API
 export const healthApi = {
-  check: () => apiClient.get('/health'),
-  stats: () => apiClient.get('/stats'),
+  check: () => apiClient.get('/api/health'),
+  stats: () => apiClient.get('/api/stats'),
   pollHistory: (limit?: number) =>
-    apiClient.get('/poll-history', { params: { limit } }),
+    apiClient.get('/api/poll-history', { params: { limit } }),
 };

@@ -33,6 +33,7 @@ export function useDevices() {
     mutationFn: (id: string) => devicesApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['topology'] });
     },
   });
 
@@ -41,6 +42,16 @@ export function useDevices() {
       devicesApi.discover(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['topology'] });
+    },
+  });
+
+  const rescanMutation = useMutation({
+    mutationFn: (data: { network_range: string; community?: string; method?: string; replace?: boolean }) =>
+      devicesApi.rescan(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['topology'] });
     },
   });
 
@@ -52,6 +63,8 @@ export function useDevices() {
     updateDevice: updateMutation.mutateAsync,
     deleteDevice: deleteMutation.mutateAsync,
     discoverNetwork: discoverMutation.mutateAsync,
+    rescanNetwork: rescanMutation.mutateAsync,
+    isRescanning: rescanMutation.isPending,
     isDiscovering: discoverMutation.isPending,
   };
 }

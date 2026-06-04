@@ -9,6 +9,12 @@ from datetime import datetime
 from typing import Any, Optional
 
 
+def _config_signature(alert_type: str, channel: str, config: dict[str, Any]) -> str:
+    """Stable signature for (alert_type, channel, normalized config) dedup."""
+    normalized = json.dumps(config or {}, sort_keys=True, separators=(",", ":"))
+    return f"{alert_type.lower()}|{channel.lower()}|{normalized}"
+
+
 class AsyncSQLiteClient:
     """Async SQLite client for development and testing."""
 
@@ -23,6 +29,7 @@ class AsyncSQLiteClient:
         self._db = await aiosqlite.connect(self._db_path, timeout=30.0)
         self._db.row_factory = aiosqlite.Row
         await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA synchronous=NORMAL")
         await self._db.execute("PRAGMA busy_timeout=30000")
         await self._db.commit()
 
@@ -93,8 +100,19 @@ class AsyncSQLiteClient:
                 alert_type TEXT NOT NULL,
                 channel TEXT NOT NULL,
                 config_json TEXT,
+                integration_id TEXT,
                 enabled INTEGER DEFAULT 1,
                 created TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS integrations (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                name TEXT NOT NULL,
+                secrets_json TEXT,
+                enabled INTEGER DEFAULT 1,
+                created TEXT DEFAULT (datetime('now')),
+                UNIQUE(type, name)
             );
 
             CREATE TABLE IF NOT EXISTS alert_history (
@@ -139,7 +157,9 @@ class AsyncSQLiteClient:
             CREATE INDEX IF NOT EXISTS idx_poll_history_device ON poll_history(device_id);
             CREATE INDEX IF NOT EXISTS idx_poll_history_polled_at ON poll_history(polled_at);
             CREATE INDEX IF NOT EXISTS idx_alert_configs_enabled ON alert_configs(enabled);
+            CREATE INDEX IF NOT EXISTS idx_alert_configs_integration ON alert_configs(integration_id);
             CREATE INDEX IF NOT EXISTS idx_alert_history_config ON alert_history(alert_config_id);
+            CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type);
             CREATE INDEX IF NOT EXISTS idx_service_checks_type ON service_checks(check_type);
             CREATE INDEX IF NOT EXISTS idx_service_checks_enabled ON service_checks(enabled);
             CREATE INDEX IF NOT EXISTS idx_check_results_check_id ON check_results(check_id);
@@ -211,11 +231,27 @@ class AsyncSQLiteClient:
             except Exception:
                 pass
 
+        # Migrate alert_configs: add integration_id column if missing
+        try:
+            await self._db.execute(
+                "ALTER TABLE alert_configs ADD COLUMN integration_id TEXT"
+            )
+        except Exception:
+            pass
+        try:
+            await self._db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_alert_configs_integration ON alert_configs(integration_id)"
+            )
+        except Exception:
+            pass
+
         # Create users and app_settings tables
         await self._db.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE,
+                name TEXT,
                 password_hash TEXT NOT NULL,
                 role TEXT DEFAULT 'admin',
                 created TEXT DEFAULT (datetime('now'))
@@ -226,6 +262,15 @@ class AsyncSQLiteClient:
                 updated TEXT DEFAULT (datetime('now'))
             );
         """)
+
+        # Idempotent column adds for existing dev DBs pre-migration.
+        # CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
+        existing = {row[1] for row in await (await self._db.execute("PRAGMA table_info(users)")).fetchall()}
+        if "email" not in existing:
+            await self._db.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        if "name" not in existing:
+            await self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
+
         cursor = await self._db.execute("SELECT 1 FROM app_settings WHERE key = 'config'")
         if not await cursor.fetchone():
             await self._db.execute("INSERT INTO app_settings (key, value) VALUES ('config', '{}')")
@@ -238,17 +283,48 @@ class AsyncSQLiteClient:
         await self._db.execute("DELETE FROM poll_history WHERE polled_at < ?", (cutoff,))
         await self._db.commit()
 
-    async def create_user(self, username: str, password_hash: str) -> dict[str, Any]:
+    async def _execute_with_retry(self, op, *args, **kwargs):
+        """Run a DB op and retry on transient 'database is locked' / 'busy' errors.
+
+        Other writers (e.g. the SNMP poller) hold short write transactions on the
+        same connection. SQLite can return SQLITE_BUSY between the read snapshot
+        and the write even with busy_timeout set, so we retry a few times.
+        """
+        import sqlite3
+        import asyncio
+        last_exc: Optional[Exception] = None
+        for attempt in range(8):
+            try:
+                return await op(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                msg = str(e).lower()
+                if "locked" not in msg and "busy" not in msg:
+                    raise
+                last_exc = e
+                await asyncio.sleep(0.05 * (attempt + 1))
+        raise last_exc  # type: ignore[misc]
+
+    async def create_user(self, username: str, password_hash: str, email: Optional[str] = None, name: Optional[str] = None) -> dict[str, Any]:
         uid = str(uuid.uuid4())
-        await self._db.execute(
-            "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
-            (uid, username, password_hash),
+        await self._execute_with_retry(
+            self._db.execute,
+            "INSERT INTO users (id, username, email, name, password_hash) VALUES (?, ?, ?, ?, ?)",
+            (uid, username, email, name, password_hash),
         )
         await self._db.commit()
-        return {"id": uid, "username": username, "role": "admin"}
+        return {"id": uid, "username": username, "email": email, "name": name, "role": "admin"}
 
     async def get_user_by_username(self, username: str) -> Optional[dict[str, Any]]:
-        cursor = await self._db.execute("SELECT * FROM users WHERE username = ?", (username,))
+        cursor = await self._execute_with_retry(
+            self._db.execute, "SELECT * FROM users WHERE username = ?", (username,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def get_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
+        cursor = await self._execute_with_retry(
+            self._db.execute, "SELECT * FROM users WHERE email = ?", (email,),
+        )
         row = await cursor.fetchone()
         return dict(row) if row else None
 
@@ -342,6 +418,46 @@ class AsyncSQLiteClient:
         )
         await self._db.commit()
         return cursor.rowcount == 1
+
+    async def bulk_delete_devices(self, device_ids: list[str]) -> int:
+        """Delete many devices by id or ip_address. Returns rows removed."""
+        if not device_ids:
+            return 0
+        total = 0
+        async with self._lock:
+            for did in device_ids:
+                cursor = await self._db.execute(
+                    "DELETE FROM devices WHERE id = ? OR ip_address = ?",
+                    (did, did),
+                )
+                total += cursor.rowcount
+            if total:
+                await self._db.execute(
+                    """
+                    DELETE FROM topology_nodes
+                    WHERE device_id IS NULL
+                       OR NOT EXISTS (SELECT 1 FROM devices d WHERE d.id = topology_nodes.device_id)
+                    """
+                )
+                await self._db.execute(
+                    """
+                    DELETE FROM topology_links
+                    WHERE NOT EXISTS (SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.source_id)
+                       OR NOT EXISTS (SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.target_id)
+                    """
+                )
+            await self._db.commit()
+        return total
+
+    async def clear_all_devices(self) -> int:
+        """Wipe every device and prune orphan topology. Returns rows removed."""
+        async with self._lock:
+            cursor = await self._db.execute("DELETE FROM devices")
+            total = cursor.rowcount
+            await self._db.execute("DELETE FROM topology_nodes")
+            await self._db.execute("DELETE FROM topology_links")
+            await self._db.commit()
+        return total
 
     # Network methods
     async def list_networks(self) -> list[dict[str, Any]]:
@@ -625,11 +741,14 @@ class AsyncSQLiteClient:
 
     # Alert methods
     async def list_alert_configs(
-        self, limit: Optional[int] = None, offset: Optional[int] = None
+        self, limit: Optional[int] = None, offset: Optional[int] = None,
+        include_disabled: bool = True,
     ) -> list[dict[str, Any]]:
         """List alert configurations with optional pagination."""
-        query = "SELECT * FROM alert_configs WHERE enabled = 1"
+        query = "SELECT * FROM alert_configs"
         params: list[Any] = []
+        if not include_disabled:
+            query += " WHERE enabled = 1"
         if limit is not None:
             query += " LIMIT ?"
             params.append(limit)
@@ -651,12 +770,88 @@ class AsyncSQLiteClient:
         alert_id = str(uuid.uuid4())
         config_json = json.dumps(data.get("config", {}))
         await self._db.execute(
-            "INSERT INTO alert_configs (id, name, alert_type, channel, config_json, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO alert_configs (id, name, alert_type, channel, config_json, integration_id, enabled) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (alert_id, data["name"], data["alert_type"], data["channel"], config_json,
+             data.get("integration_id"),
              1 if data.get("enabled", True) else 0)
         )
         await self._db.commit()
         return await self._get_alert_config(alert_id)
+
+    async def update_alert_config(
+        self, alert_id: str, data: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update an existing alert config. Returns updated row or None."""
+        existing = await self._get_alert_config(alert_id)
+        if not existing:
+            return None
+
+        sets: list[str] = []
+        params_list: list[Any] = []
+        if "name" in data:
+            sets.append("name = ?")
+            params_list.append(data["name"])
+        if "alert_type" in data:
+            sets.append("alert_type = ?")
+            params_list.append(data["alert_type"])
+        if "channel" in data:
+            sets.append("channel = ?")
+            params_list.append(data["channel"])
+        if "config" in data:
+            sets.append("config_json = ?")
+            params_list.append(json.dumps(data["config"]))
+        if "integration_id" in data:
+            sets.append("integration_id = ?")
+            params_list.append(data["integration_id"])
+        if "enabled" in data:
+            sets.append("enabled = ?")
+            params_list.append(1 if data["enabled"] else 0)
+
+        if not sets:
+            return existing
+
+        params_list.append(alert_id)
+        query = f"UPDATE alert_configs SET {', '.join(sets)} WHERE id = ?"
+        await self._db.execute(query, tuple(params_list))
+        await self._db.commit()
+        return await self._get_alert_config(alert_id)
+
+    async def delete_alert_config(self, alert_id: str) -> bool:
+        """Delete an alert config and its history. Returns True if deleted."""
+        async with self._lock:
+            cursor = await self._db.execute(
+                "SELECT id FROM alert_configs WHERE id = ?", (alert_id,)
+            )
+            existing = await cursor.fetchone()
+            if not existing:
+                return False
+            await self._db.execute(
+                "DELETE FROM alert_history WHERE alert_config_id = ?", (alert_id,)
+            )
+            await self._db.execute(
+                "DELETE FROM alert_configs WHERE id = ?", (alert_id,)
+            )
+            await self._db.commit()
+            return True
+
+    async def find_alert_config_by_signature(
+        self, alert_type: str, channel: str, config: dict[str, Any],
+        exclude_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Find an alert config matching (alert_type, channel, normalized config)."""
+        all_configs = await self.list_alert_configs(include_disabled=True)
+        signature = _config_signature(alert_type, channel, config)
+        for cfg in all_configs:
+            if cfg.get("id") == exclude_id:
+                continue
+            if _config_signature(
+                cfg.get("alert_type", ""),
+                cfg.get("channel", ""),
+                cfg.get("config_json") or {},
+            ) == signature:
+                return cfg
+        return None
 
     async def _get_alert_config(self, alert_id: str) -> Optional[dict[str, Any]]:
         """Get alert config by ID."""
@@ -670,6 +865,136 @@ class AsyncSQLiteClient:
                 d["config_json"] = json.loads(d["config_json"]) if isinstance(d["config_json"], str) else d["config_json"]
             return d
         return None
+
+    # Integration methods
+    async def list_integrations(
+        self, type: Optional[str] = None, include_disabled: bool = True
+    ) -> list[dict[str, Any]]:
+        """List integrations, optionally filtered by type."""
+        query = "SELECT * FROM integrations"
+        params_list: list[Any] = []
+        clauses: list[str] = []
+        if type:
+            clauses.append("type = ?")
+            params_list.append(type)
+        if not include_disabled:
+            clauses.append("enabled = 1")
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created DESC"
+        cursor = await self._db.execute(query, tuple(params_list) if params_list else ())
+        rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("secrets_json"):
+                d["secrets_json"] = json.loads(d["secrets_json"]) if isinstance(d["secrets_json"], str) else d["secrets_json"]
+            result.append(d)
+        return result
+
+    async def create_integration(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new integration. Returns the created row."""
+        integration_id = str(uuid.uuid4())
+        secrets_json = json.dumps(data.get("secrets_json", {}))
+        await self._db.execute(
+            "INSERT INTO integrations (id, type, name, secrets_json, enabled) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (integration_id, data["type"], data["name"], secrets_json,
+             1 if data.get("enabled", True) else 0),
+        )
+        await self._db.commit()
+        result = await self.get_integration(integration_id)
+        if not result:
+            raise RuntimeError("Failed to create integration")
+        return result
+
+    async def get_integration(
+        self, integration_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Get integration by ID."""
+        cursor = await self._db.execute(
+            "SELECT * FROM integrations WHERE id = ?", (integration_id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            d = dict(row)
+            if d.get("secrets_json"):
+                d["secrets_json"] = json.loads(d["secrets_json"]) if isinstance(d["secrets_json"], str) else d["secrets_json"]
+            return d
+        return None
+
+    async def update_integration(
+        self, integration_id: str, data: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update an existing integration. Returns updated row or None."""
+        existing = await self.get_integration(integration_id)
+        if not existing:
+            return None
+
+        sets: list[str] = []
+        params_list: list[Any] = []
+        if "type" in data:
+            sets.append("type = ?")
+            params_list.append(data["type"])
+        if "name" in data:
+            sets.append("name = ?")
+            params_list.append(data["name"])
+        if "secrets_json" in data:
+            sets.append("secrets_json = ?")
+            params_list.append(json.dumps(data["secrets_json"]))
+        if "enabled" in data:
+            sets.append("enabled = ?")
+            params_list.append(1 if data["enabled"] else 0)
+
+        if not sets:
+            return existing
+
+        params_list.append(integration_id)
+        query = f"UPDATE integrations SET {', '.join(sets)} WHERE id = ?"
+        await self._db.execute(query, tuple(params_list))
+        await self._db.commit()
+        return await self.get_integration(integration_id)
+
+    async def delete_integration(self, integration_id: str) -> tuple[bool, str]:
+        """Delete an integration. Returns (success, error_message)."""
+        cursor = await self._db.execute(
+            "SELECT id FROM integrations WHERE id = ?", (integration_id,)
+        )
+        existing = await cursor.fetchone()
+        if not existing:
+            return False, "not found"
+        ref_cursor = await self._db.execute(
+            "SELECT id FROM alert_configs WHERE integration_id = ? LIMIT 1",
+            (integration_id,),
+        )
+        ref = await ref_cursor.fetchone()
+        if ref:
+            return False, "integration is referenced by one or more alert rules"
+        await self._db.execute(
+            "DELETE FROM integrations WHERE id = ?", (integration_id,)
+        )
+        await self._db.commit()
+        return True, ""
+
+    async def get_integration_for_alert(
+        self, alert_config: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Merge integration secrets with alert config. Returns effective config dict.
+
+        If alert_config has integration_id, fetches integration and merges:
+        integration.secrets_json (base) <- alert_config.config_json (overrides).
+        Otherwise returns alert_config.config_json as-is.
+        """
+        base_config: dict[str, Any] = {}
+        if alert_config.get("integration_id"):
+            integration = await self.get_integration(alert_config["integration_id"])
+            if integration and integration.get("secrets_json"):
+                base_config = dict(integration["secrets_json"])
+        rule_config = alert_config.get("config_json") or {}
+        if not isinstance(rule_config, dict):
+            rule_config = {}
+        merged = {**base_config, **rule_config}
+        return merged
 
     async def record_alert_history(
         self, alert_config_id: str, message: str, status: str = "triggered"

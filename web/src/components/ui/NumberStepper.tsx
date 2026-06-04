@@ -37,36 +37,36 @@ export function NumberStepper({
   return (
     <div className={`flex items-center ${className}`}>
       {label && (
-        <label className="block text-sm font-medium text-[#161616] dark:text-[#a8a8a8] mr-3">
+        <label className="block text-sm font-medium text-foreground mr-3">
           {label}
         </label>
       )}
-      <div className="flex items-stretch border border-[#c6c6c6] dark:border-[#525252] rounded-sm overflow-hidden">
+      <div className="flex items-stretch border border-input rounded-sm overflow-hidden">
         <input
           type="number"
           value={value}
           onChange={handleInputChange}
           min={min}
           max={max}
-          className="w-14 px-2 py-2 bg-white dark:bg-[#262626] text-[#161616] dark:text-white text-center outline-none border-r border-[#c6c6c6] dark:border-[#525252] focus:ring-0 focus:border-none"
+          className="w-14 px-2 py-2 bg-card text-foreground text-center outline-none border-r border-input focus:ring-0 focus:border-none"
           style={{ appearance: 'textfield' }}
         />
         <div className="flex flex-col">
           <button
             type="button"
             onClick={handleIncrement}
-            className="flex-1 flex items-center justify-center px-2 bg-[#f4f4f4] dark:bg-[#161616] hover:bg-[#e0e0e0] dark:hover:bg-[#262626] border-b border-[#c6c6c6] dark:border-[#525252] transition-colors"
+            className="flex-1 flex items-center justify-center px-2 bg-background hover:bg-surface-hover border-b border-input transition-colors"
             aria-label="Increment"
           >
-            <ChevronUp className="h-3 w-3 text-[#525252] dark:text-[#a8a8a8]" />
+            <ChevronUp className="h-3 w-3 text-muted-foreground" />
           </button>
           <button
             type="button"
             onClick={handleDecrement}
-            className="flex-1 flex items-center justify-center px-2 bg-[#f4f4f4] dark:bg-[#161616] hover:bg-[#e0e0e0] dark:hover:bg-[#262626] transition-colors"
+            className="flex-1 flex items-center justify-center px-2 bg-background hover:bg-surface-hover transition-colors"
             aria-label="Decrement"
           >
-            <ChevronDown className="h-3 w-3 text-[#525252] dark:text-[#a8a8a8]" />
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </button>
         </div>
       </div>

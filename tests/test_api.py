@@ -304,27 +304,29 @@ class TestAlertEndpoints:
     @pytest.mark.asyncio
     async def test_create_webhook_alert(self, client):
         """Test creating webhook alert."""
+        import uuid
         alert_data = {
-            "name": "webhook-test-alert",
+            "name": f"webhook-test-alert-{uuid.uuid4().hex[:8]}",
             "alert_type": "device_down",
             "channel": "webhook",
-            "config": {"url": "https://httpbin.org/post"},
+            "config": {"url": f"https://httpbin.org/post-{uuid.uuid4().hex[:8]}"},
             "enabled": True,
         }
         response = await client.post("/alerts", json=alert_data)
         assert response.status_code == 200
         data = response.json()
-        assert data["name"] == "webhook-test-alert"
+        assert data["name"] == alert_data["name"]
         assert data["channel"] == "webhook"
 
     @pytest.mark.asyncio
     async def test_create_slack_alert(self, client):
         """Test creating Slack alert."""
+        import uuid
         alert_data = {
-            "name": "slack-test-alert",
+            "name": f"slack-test-alert-{uuid.uuid4().hex[:8]}",
             "alert_type": "topology_change",
             "channel": "slack",
-            "config": {"webhook_url": "https://hooks.slack.com/services/XXX"},
+            "config": {"webhook_url": f"https://hooks.slack.com/services/{uuid.uuid4().hex[:8]}"},
             "enabled": True,
         }
         response = await client.post("/alerts", json=alert_data)
@@ -333,8 +335,9 @@ class TestAlertEndpoints:
     @pytest.mark.asyncio
     async def test_create_invalid_channel(self, client):
         """Test creating alert with invalid channel returns 400."""
+        import uuid
         response = await client.post("/alerts", json={
-            "name": "invalid-alert",
+            "name": f"invalid-alert-{uuid.uuid4().hex[:8]}",
             "alert_type": "device_down",
             "channel": "invalid_channel",
             "config": {},

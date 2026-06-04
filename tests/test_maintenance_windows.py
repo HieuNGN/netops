@@ -130,7 +130,11 @@ class TestMaintenanceWindows:
                 return True
 
         service = AlertService(mock_db)
-        service.get_notification_channel = lambda ch, cfg: MockChannel(cfg)
+
+        async def _fake_channel(ch, cfg, **kwargs):
+            return MockChannel(cfg)
+
+        service.get_notification_channel = _fake_channel
 
         alerts = [{
             "alert_type": "device_down",

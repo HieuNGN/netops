@@ -159,7 +159,7 @@ async def _probe_host(
             "community": community,
             "discovery_method": "ping" if ping_alive and not open_ports else "port",
             "open_ports": open_ports,
-            "status": "discovered",
+            "status": "online",
         }
 
     return None
@@ -187,7 +187,7 @@ async def _probe_snmp(
                 "community": community,
                 "discovery_method": "snmp",
                 "open_ports": [161],
-                "status": "discovered",
+                "status": "online",
             }
     except asyncio.TimeoutError:
         pass
@@ -300,13 +300,70 @@ async def add_discovered_devices(
                     "ip_address": device["ip_address"],
                     "community": device.get("community", community),
                     "sys_descr": device.get("sys_descr", ""),
-                    "status": device.get("status", "discovered"),
+                    "status": device.get("status", "online"),
                     "discovery_method": method_used,
                 }
             )
             stats["added"] += 1
 
     return stats
+
+
+async def rescan_and_replace(
+    db_client: Any,
+    network_range: str,
+    community: str = "public",
+    timeout: float = 2.0,
+    max_concurrent: int = 50,
+    method: str = "all",
+) -> dict[str, Any]:
+    """
+    Nuke every device + topology, then rediscover from the given range.
+
+    Returns:
+        Dict with 'cleared', 'found', 'added', 'scanned', 'by_method'
+    """
+    cleared = 0
+    try:
+        cleared = await db_client.clear_all_devices()
+    except AttributeError:
+        # Backend lacks the helper; fall back to per-row delete
+        existing = await db_client.list_devices()
+        ids = [d.get("id") or d.get("ip_address") for d in existing if d]
+        cleared = await db_client.bulk_delete_devices(ids) if ids else 0
+
+    stats = await add_discovered_devices(
+        db_client, network_range, community, timeout, max_concurrent, method
+    )
+    stats["cleared"] = cleared
+    return stats
+
+
+def expand_cidr_hosts(network_range: str, limit: int = 1024) -> list[str]:
+    """Expand a CIDR or dotted range into a list of host strings (capped)."""
+    import ipaddress
+
+    try:
+        network = ipaddress.ip_network(network_range, strict=False)
+        return [str(h) for h in network.hosts()][:limit]
+    except ValueError:
+        pass
+
+    if "-" in network_range:
+        parts = network_range.split("-")
+        if len(parts) == 2:
+            base_parts = parts[0].rsplit(".", 1)
+            if len(base_parts) == 2:
+                try:
+                    start = int(base_parts[1])
+                    end = int(parts[1])
+                    return [
+                        f"{base_parts[0]}.{i}"
+                        for i in range(start, min(end, start + limit) + 1)
+                    ]
+                except ValueError:
+                    return []
+    return []
 
 
 def discover_devices_sync(

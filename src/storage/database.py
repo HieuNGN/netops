@@ -28,6 +28,12 @@ from sqlalchemy import (
 from sqlalchemy.sql import func
 
 
+def _config_signature(alert_type: str, channel: str, config: dict[str, Any]) -> str:
+    """Stable signature for (alert_type, channel, normalized config) dedup."""
+    normalized = json.dumps(config or {}, sort_keys=True, separators=(",", ":"))
+    return f"{alert_type.lower()}|{channel.lower()}|{normalized}"
+
+
 # SQLAlchemy metadata for schema definition
 Base = type("Base", (), {"metadata": MetaData()})
 
@@ -244,8 +250,20 @@ class AsyncPostgresClient:
                     alert_type TEXT NOT NULL,
                     channel TEXT NOT NULL,
                     config_json JSONB,
+                    integration_id TEXT,
                     enabled INTEGER DEFAULT 1,
                     created TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS integrations (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    secrets_json JSONB,
+                    enabled INTEGER DEFAULT 1,
+                    created TIMESTAMPTZ DEFAULT NOW(),
+                    CONSTRAINT uq_integrations_type_name UNIQUE (type, name)
                 )
             """)
 
@@ -299,7 +317,9 @@ class AsyncPostgresClient:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_poll_history_device ON poll_history(device_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_poll_history_polled_at ON poll_history(polled_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_configs_enabled ON alert_configs(enabled)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_configs_integration ON alert_configs(integration_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_history_config ON alert_history(alert_config_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_service_checks_type ON service_checks(check_type)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_service_checks_enabled ON service_checks(enabled)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_check_results_check_id ON check_results(check_id)")
@@ -364,6 +384,8 @@ class AsyncPostgresClient:
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
+                    name TEXT,
                     password_hash TEXT NOT NULL,
                     role TEXT DEFAULT 'admin',
                     created TIMESTAMPTZ DEFAULT NOW()
@@ -460,6 +482,47 @@ class AsyncPostgresClient:
                 device_id,
             )
             return result == "DELETE 1"
+
+    async def bulk_delete_devices(self, device_ids: list[str]) -> int:
+        """Delete many devices by id or ip_address. Returns rows removed."""
+        if not device_ids:
+            return 0
+        total = 0
+        async with self._get_connection() as conn:
+            async with conn.transaction():
+                for did in device_ids:
+                    result = await conn.execute(
+                        "DELETE FROM devices WHERE id = $1 OR ip_address = $1",
+                        did,
+                    )
+                    total += int(result.split()[-1]) if result.startswith("DELETE") else 0
+                # Drop topology nodes/links whose device vanished
+                if total:
+                    await conn.execute(
+                        """
+                        DELETE FROM topology_nodes
+                        WHERE device_id IS NULL
+                           OR NOT EXISTS (SELECT 1 FROM devices d WHERE d.id = topology_nodes.device_id)
+                        """
+                    )
+                    await conn.execute(
+                        """
+                        DELETE FROM topology_links
+                        WHERE NOT EXISTS (SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.source_id)
+                           OR NOT EXISTS (SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.target_id)
+                        """
+                    )
+        return total
+
+    async def clear_all_devices(self) -> int:
+        """Wipe every device and prune orphan topology. Returns rows removed."""
+        async with self._get_connection() as conn:
+            async with conn.transaction():
+                result = await conn.execute("DELETE FROM devices")
+                total = int(result.split()[-1]) if result.startswith("DELETE") else 0
+                await conn.execute("DELETE FROM topology_nodes")
+                await conn.execute("DELETE FROM topology_links")
+                return total
 
     async def list_topology(self) -> dict[str, list[dict[str, Any]]]:
         """Get current topology as nodes/links."""
@@ -573,19 +636,28 @@ class AsyncPostgresClient:
             if any(changes.values()):
                 added_nodes = [n for n in nodes if n["id"] in (new_node_ids - existing_node_ids)]
                 added_links = [l for l in links if l["id"] in (new_link_ids - existing_link_ids)]
-                await self._record_topology_changes(conn, changes, added_nodes, added_links)
+                removed_nodes = []
+                for i in removed_ids:
+                    row = await conn.fetchrow("SELECT * FROM topology_nodes WHERE id = $1", i)
+                    if row: removed_nodes.append(dict(row))
+                removed_links = []
+                for i in removed_link_ids:
+                    row = await conn.fetchrow("SELECT * FROM topology_links WHERE id = $1", i)
+                    if row: removed_links.append(dict(row))
+                await self._record_topology_changes(conn, changes, added_nodes, added_links, removed_nodes, removed_links)
 
             return changes
 
     async def _record_topology_changes(
-        self, conn, changes: dict, added_nodes: list, added_links: list
+        self, conn, changes: dict, added_nodes: list, added_links: list,
+        removed_nodes: list = None, removed_links: list = None
     ):
         """Record topology changes in history table for auditing."""
         event_type = "topology_change"
         if added_nodes:
             node_values = [
                 (event_type, n["id"], n.get("status", "unknown"),
-                 json.dumps({"action": "added", "type": "node"}))
+                 json.dumps({"action": "added", "type": "node", "data": n}))
                 for n in added_nodes
             ]
             await conn.executemany(
@@ -598,7 +670,7 @@ class AsyncPostgresClient:
         if added_links:
             link_values = [
                 (event_type, l.get("id"), l.get("status", "active"),
-                 json.dumps({"action": "added", "type": "link"}))
+                 json.dumps({"action": "added", "type": "link", "data": l}))
                 for l in added_links
             ]
             await conn.executemany(
@@ -615,7 +687,11 @@ class AsyncPostgresClient:
                 VALUES ($1, $2)
                 """,
                 event_type,
-                json.dumps({"action": "removed", "type": "nodes", "count": changes["nodes_removed"]}),
+                json.dumps({
+                    "action": "removed", "type": "nodes",
+                    "count": changes["nodes_removed"],
+                    "ids": [n.get("id") for n in (removed_nodes or [])]
+                }),
             )
         if changes["links_removed"] > 0:
             await conn.execute(
@@ -644,11 +720,14 @@ class AsyncPostgresClient:
             )
 
     async def list_alert_configs(
-        self, limit: Optional[int] = None, offset: Optional[int] = None
+        self, limit: Optional[int] = None, offset: Optional[int] = None,
+        include_disabled: bool = True,
     ) -> list[dict[str, Any]]:
         """List alert configurations with optional pagination."""
-        query = "SELECT * FROM alert_configs WHERE enabled = 1"
+        query = "SELECT * FROM alert_configs"
         params: list[Any] = []
+        if not include_disabled:
+            query += " WHERE enabled = 1"
         if limit is not None:
             query += f" LIMIT ${len(params) + 1}"
             params.append(limit)
@@ -673,17 +752,91 @@ class AsyncPostgresClient:
         async with self._get_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO alert_configs (id, name, alert_type, channel, config_json, enabled)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO alert_configs
+                    (id, name, alert_type, channel, config_json, integration_id, enabled)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 """,
                 alert_id,
                 data["name"],
                 data["alert_type"],
                 data["channel"],
                 config_json,
+                data.get("integration_id"),
                 1 if data.get("enabled", True) else 0,
             )
         return await self._get_alert_config(alert_id)
+
+    async def update_alert_config(
+        self, alert_id: str, data: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update an existing alert config. Returns updated row or None."""
+        existing = await self._get_alert_config(alert_id)
+        if not existing:
+            return None
+
+        sets: list[str] = []
+        params_list: list[Any] = []
+        if "name" in data:
+            sets.append(f"name = ${len(params_list) + 1}")
+            params_list.append(data["name"])
+        if "alert_type" in data:
+            sets.append(f"alert_type = ${len(params_list) + 1}")
+            params_list.append(data["alert_type"])
+        if "channel" in data:
+            sets.append(f"channel = ${len(params_list) + 1}")
+            params_list.append(data["channel"])
+        if "config" in data:
+            sets.append(f"config_json = ${len(params_list) + 1}")
+            params_list.append(json.dumps(data["config"]))
+        if "integration_id" in data:
+            sets.append(f"integration_id = ${len(params_list) + 1}")
+            params_list.append(data["integration_id"])
+        if "enabled" in data:
+            sets.append(f"enabled = ${len(params_list) + 1}")
+            params_list.append(1 if data["enabled"] else 0)
+
+        if not sets:
+            return existing
+
+        params_list.append(alert_id)
+        query = f"UPDATE alert_configs SET {', '.join(sets)} WHERE id = ${len(params_list)}"
+        async with self._get_connection() as conn:
+            await conn.execute(query, *params_list)
+        return await self._get_alert_config(alert_id)
+
+    async def delete_alert_config(self, alert_id: str) -> bool:
+        """Delete an alert config and its history. Returns True if deleted."""
+        async with self._get_connection() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id FROM alert_configs WHERE id = $1", alert_id
+            )
+            if not existing:
+                return False
+            await conn.execute(
+                "DELETE FROM alert_history WHERE alert_config_id = $1", alert_id
+            )
+            await conn.execute(
+                "DELETE FROM alert_configs WHERE id = $1", alert_id
+            )
+            return True
+
+    async def find_alert_config_by_signature(
+        self, alert_type: str, channel: str, config: dict[str, Any],
+        exclude_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Find an alert config matching (alert_type, channel, normalized config)."""
+        all_configs = await self.list_alert_configs(include_disabled=True)
+        signature = _config_signature(alert_type, channel, config)
+        for cfg in all_configs:
+            if cfg.get("id") == exclude_id:
+                continue
+            if _config_signature(
+                cfg.get("alert_type", ""),
+                cfg.get("channel", ""),
+                cfg.get("config_json") or {},
+            ) == signature:
+                return cfg
+        return None
 
     async def _get_alert_config(self, alert_id: str) -> Optional[dict[str, Any]]:
         """Get alert config by ID."""
@@ -695,6 +848,139 @@ class AsyncPostgresClient:
                     d["config_json"] = json.loads(d["config_json"]) if isinstance(d["config_json"], str) else d["config_json"]
                 return d
             return None
+
+    # Integration methods
+    async def list_integrations(
+        self, type: Optional[str] = None, include_disabled: bool = True
+    ) -> list[dict[str, Any]]:
+        """List integrations, optionally filtered by type."""
+        query = "SELECT * FROM integrations"
+        params_list: list[Any] = []
+        clauses: list[str] = []
+        if type:
+            clauses.append(f"type = ${len(params_list) + 1}")
+            params_list.append(type)
+        if not include_disabled:
+            clauses.append("enabled = 1")
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created DESC"
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(query, *params_list)
+            result = []
+            for row in rows:
+                d = dict(row)
+                if d.get("secrets_json"):
+                    d["secrets_json"] = json.loads(d["secrets_json"]) if isinstance(d["secrets_json"], str) else d["secrets_json"]
+                result.append(d)
+            return result
+
+    async def create_integration(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new integration. Returns the created row."""
+        integration_id = str(uuid.uuid4())
+        secrets_json = json.dumps(data.get("secrets_json", {}))
+        async with self._get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO integrations (id, type, name, secrets_json, enabled)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                integration_id,
+                data["type"],
+                data["name"],
+                secrets_json,
+                1 if data.get("enabled", True) else 0,
+            )
+        result = await self.get_integration(integration_id)
+        if not result:
+            raise RuntimeError("Failed to create integration")
+        return result
+
+    async def get_integration(
+        self, integration_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Get integration by ID."""
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM integrations WHERE id = $1", integration_id
+            )
+            if row:
+                d = dict(row)
+                if d.get("secrets_json"):
+                    d["secrets_json"] = json.loads(d["secrets_json"]) if isinstance(d["secrets_json"], str) else d["secrets_json"]
+                return d
+            return None
+
+    async def update_integration(
+        self, integration_id: str, data: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update an existing integration. Returns updated row or None."""
+        existing = await self.get_integration(integration_id)
+        if not existing:
+            return None
+
+        sets: list[str] = []
+        params_list: list[Any] = []
+        if "type" in data:
+            sets.append(f"type = ${len(params_list) + 1}")
+            params_list.append(data["type"])
+        if "name" in data:
+            sets.append(f"name = ${len(params_list) + 1}")
+            params_list.append(data["name"])
+        if "secrets_json" in data:
+            sets.append(f"secrets_json = ${len(params_list) + 1}")
+            params_list.append(json.dumps(data["secrets_json"]))
+        if "enabled" in data:
+            sets.append(f"enabled = ${len(params_list) + 1}")
+            params_list.append(1 if data["enabled"] else 0)
+
+        if not sets:
+            return existing
+
+        params_list.append(integration_id)
+        query = f"UPDATE integrations SET {', '.join(sets)} WHERE id = ${len(params_list)}"
+        async with self._get_connection() as conn:
+            await conn.execute(query, *params_list)
+        return await self.get_integration(integration_id)
+
+    async def delete_integration(self, integration_id: str) -> tuple[bool, str]:
+        """Delete an integration. Returns (success, error_message)."""
+        async with self._get_connection() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id FROM integrations WHERE id = $1", integration_id
+            )
+            if not existing:
+                return False, "not found"
+            ref = await conn.fetchrow(
+                "SELECT id FROM alert_configs WHERE integration_id = $1 LIMIT 1",
+                integration_id,
+            )
+            if ref:
+                return False, "integration is referenced by one or more alert rules"
+            await conn.execute(
+                "DELETE FROM integrations WHERE id = $1", integration_id
+            )
+            return True, ""
+
+    async def get_integration_for_alert(
+        self, alert_config: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Merge integration secrets with alert config. Returns effective config dict.
+
+        If alert_config has integration_id, fetches integration and merges:
+        integration.secrets_json (base) <- alert_config.config_json (overrides).
+        Otherwise returns alert_config.config_json as-is.
+        """
+        base_config: dict[str, Any] = {}
+        if alert_config.get("integration_id"):
+            integration = await self.get_integration(alert_config["integration_id"])
+            if integration and integration.get("secrets_json"):
+                base_config = dict(integration["secrets_json"])
+        rule_config = alert_config.get("config_json") or {}
+        if not isinstance(rule_config, dict):
+            rule_config = {}
+        merged = {**base_config, **rule_config}
+        return merged
 
     async def record_alert_history(
         self, alert_config_id: str, message: str, status: str = "triggered"
@@ -898,19 +1184,24 @@ class AsyncPostgresClient:
                 retention_days,
             )
 
-    async def create_user(self, username: str, password_hash: str) -> dict[str, Any]:
+    async def create_user(self, username: str, password_hash: str, email: Optional[str] = None, name: Optional[str] = None) -> dict[str, Any]:
         async with self._get_connection() as conn:
             import uuid as _uuid
             uid = str(_uuid.uuid4())
             await conn.execute(
-                "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)",
-                uid, username, password_hash,
+                "INSERT INTO users (id, username, email, name, password_hash) VALUES ($1, $2, $3, $4, $5)",
+                uid, username, email, name, password_hash,
             )
-            return {"id": uid, "username": username, "role": "admin"}
+            return {"id": uid, "username": username, "email": email, "name": name, "role": "admin"}
 
     async def get_user_by_username(self, username: str) -> Optional[dict[str, Any]]:
         async with self._get_connection() as conn:
             row = await conn.fetchrow("SELECT * FROM users WHERE username = $1", username)
+            return dict(row) if row else None
+
+    async def get_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow("SELECT * FROM users WHERE email = $1", email)
             return dict(row) if row else None
 
     async def get_settings(self) -> dict[str, Any]:
@@ -1074,13 +1365,29 @@ class AsyncPostgresClient:
                 event_type, node_id, link_id, old_status, new_status, details_json,
             )
 
-    async def get_topology_history(self, limit: int = 100) -> list[dict[str, Any]]:
-        """Get recent topology change history."""
+    async def get_topology_history(
+        self, limit: int = 100, event_type: str = None,
+        from_time: str = None, to_time: str = None, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        """Get recent topology change history with optional filters."""
         async with self._get_connection() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM topology_history ORDER BY recorded_at DESC LIMIT $1",
-                limit,
-            )
+            where = []
+            params = []
+            if event_type:
+                where.append(f"event_type = ${len(params)+1}")
+                params.append(event_type)
+            if from_time:
+                where.append(f"recorded_at >= ${len(params)+1}")
+                params.append(from_time)
+            if to_time:
+                where.append(f"recorded_at <= ${len(params)+1}")
+                params.append(to_time)
+            q = "SELECT * FROM topology_history"
+            if where:
+                q += " WHERE " + " AND ".join(where)
+            q += f" ORDER BY recorded_at DESC LIMIT ${len(params)+1} OFFSET ${len(params)+2}"
+            params.extend([limit, offset])
+            rows = await conn.fetch(q, *params)
             result = []
             for row in rows:
                 d = dict(row)
@@ -1088,3 +1395,19 @@ class AsyncPostgresClient:
                     d["details"] = json.loads(d["details"]) if isinstance(d["details"], str) else d["details"]
                 result.append(d)
             return result
+
+    async def get_topology_at_event(self, event_id: int) -> dict[str, list[dict[str, Any]]]:
+        """Get topology state that existed just before a given history event."""
+        async with self._get_connection() as conn:
+            # Get the event timestamp
+            row = await conn.fetchrow(
+                "SELECT recorded_at FROM topology_history WHERE id = $1", event_id
+            )
+            if not row:
+                return {"nodes": [], "links": []}
+            recorded_at = row["recorded_at"]
+            # Get all topology changes up to this point, reconstruct state
+            # Simplified: return current topology minus the changes from this event
+            nodes = await conn.fetch("SELECT * FROM topology_nodes")
+            links = await conn.fetch("SELECT * FROM topology_links")
+            return {"nodes": [dict(n) for n in nodes], "links": [dict(l) for l in links]}

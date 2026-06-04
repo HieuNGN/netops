@@ -29,17 +29,10 @@ const icons: Record<ToastType, React.ReactNode> = {
 };
 
 const colors: Record<ToastType, string> = {
-  success: 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800',
-  error: 'bg-red-50 border-red-200 dark:bg-[#520408] dark:border-red-800',
-  info: 'bg-[#f4f4f4] border-[#e0e0e0] dark:bg-[#262626] dark:border-[#393939]',
-  warning: 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800',
-};
-
-const textColors: Record<ToastType, string> = {
-  success: 'text-green-800 dark:text-green-300',
-  error: 'text-red-800 dark:text-red-300',
-  info: 'text-[#0f62fe] dark:text-[#78a9ff]',
-  warning: 'text-yellow-800 dark:text-yellow-300',
+  success: 'bg-badge-success-bg border-badge-success-fg/30 text-badge-success-fg',
+  error: 'bg-badge-destructive-bg border-badge-destructive-fg/30 text-badge-destructive-fg',
+  info: 'bg-surface-subtle border-border text-info',
+  warning: 'bg-badge-warning-bg border-badge-warning-fg/30 text-badge-warning-fg',
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -69,7 +62,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`flex items-start space-x-3 p-4 rounded-sm border shadow-lg ${colors[toast.type]} ${textColors[toast.type]} animate-slide-in`}
+            className={`flex items-start space-x-3 p-4 rounded-sm border shadow-lg ${colors[toast.type]} animate-slide-in`}
           >
             <div className="flex-shrink-0">{icons[toast.type]}</div>
             <div className="flex-1 min-w-0">

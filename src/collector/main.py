@@ -8,11 +8,12 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import ServerConfig
-from .discovery import add_discovered_devices
+from .discovery import add_discovered_devices, rescan_and_replace
+from .host_detect import detect_host_network
 from .snmp_poller import SNMPPoller
 from .topology_builder import TopologyBuilder
 from .utils import logger
@@ -31,6 +32,18 @@ check_scheduler: Optional[Any] = None
 db_client: Optional[Any] = None
 alert_service: Optional[Any] = None
 topology_subscribers: list[asyncio.Queue] = []
+event_subscribers: list[asyncio.Queue] = []
+
+
+async def broadcast_event(event_type: str, payload: dict[str, Any]) -> None:
+    """Fan an event out to every /events/stream subscriber."""
+    if not event_subscribers:
+        return
+    message = json.dumps({"type": event_type, **payload})
+    await asyncio.gather(
+        *[q.put(message) for q in event_subscribers],
+        return_exceptions=True,
+    )
 
 
 @asynccontextmanager
@@ -97,6 +110,82 @@ async def lifespan(app: FastAPI):
     check_scheduler.set_check_result_handler(on_check_result)
     await check_scheduler.start()
     logger.info("Service check scheduler initialized")
+
+    # Auto-discover: detect host network, wipe stale mocks, scan for real devices
+    async def _startup_auto_discover():
+        try:
+            host_info = await detect_host_network()
+            host_ip = host_info.get("host_ip")
+            cidr = host_info.get("cidr", "192.168.1.0/24")
+            hostname = host_info.get("hostname") or "Current Device"
+            gateway = host_info.get("gateway")
+
+            logger.info(f"Host detected: {hostname} @ {host_ip}, CIDR {cidr}, gateway {gateway}")
+
+            # Wipe stale mock/simulated devices and orphan topology
+            existing = await db_client.list_devices()
+            mock_ids = []
+            for d in existing:
+                method = (d.get("discovery_method") or "").lower()
+                name = d.get("name") or ""
+                if method == "simulated" or name in {
+                    "Core-Router-1", "Core-Router-2",
+                    "Distribution-SW-1", "Distribution-SW-2",
+                    "Access-SW-1", "Access-SW-2", "Access-SW-3",
+                    "Firewall-1",
+                }:
+                    mock_ids.append(d.get("id") or d.get("ip_address"))
+            if mock_ids:
+                removed = await db_client.bulk_delete_devices(mock_ids)
+                logger.info(f"Auto-removed {removed} stale mock devices on startup")
+
+            # Ensure host device exists in DB
+            if host_ip:
+                existing_host = await db_client.get_device(host_ip)
+                if not existing_host:
+                    await db_client.create_device({
+                        "ip_address": host_ip,
+                        "name": hostname,
+                        "status": "online",
+                        "discovery_method": "auto",
+                        "sys_descr": f"NetOps host ({hostname})",
+                    })
+                    logger.info(f"Registered host device {hostname} ({host_ip})")
+
+            # Fire background rescan on detected CIDR
+            await broadcast_event("rescan_started", {"network_range": cidr, "source": "startup"})
+            stats = await rescan_and_replace(db_client, cidr, timeout=2.0, max_concurrent=50, method="all")
+            logger.info(f"Auto-rescan {cidr}: found {stats.get('found', 0)}, added {stats.get('added', 0)}")
+
+            # Re-register host after rescan (rescan wipes all devices)
+            if host_ip:
+                existing_host = await db_client.get_device(host_ip)
+                if not existing_host:
+                    await db_client.create_device({
+                        "ip_address": host_ip,
+                        "name": hostname,
+                        "status": "online",
+                        "discovery_method": "auto",
+                        "sys_descr": f"NetOps host ({hostname})",
+                    })
+
+            # Add gateway if discovered but missing
+            if gateway:
+                gw_existing = await db_client.get_device(gateway)
+                if not gw_existing:
+                    await db_client.create_device({
+                        "ip_address": gateway,
+                        "name": f"Gateway ({gateway})",
+                        "status": "online",
+                        "discovery_method": "auto",
+                        "sys_descr": "Default gateway",
+                    })
+
+            await broadcast_event("devices_refresh", {"stats": stats, "source": "startup_auto"})
+        except Exception as e:
+            logger.warning(f"Startup auto-discover failed: {e}")
+
+    asyncio.create_task(_startup_auto_discover())
 
     yield
 
@@ -175,6 +264,7 @@ class AlertConfigCreate(BaseModel):
     alert_type: str = Field(..., description="Type: device_down, device_up, link_down, topology_change")
     channel: str = Field(..., description="Channel: webhook, slack, telegram, whatsapp, email")
     config: dict[str, Any] = {}
+    integration_id: Optional[str] = None
     enabled: bool = True
 
     def model_validate(self, values):
@@ -183,6 +273,35 @@ class AlertConfigCreate(BaseModel):
         if values.get("channel") not in valid_channels:
             raise ValueError(f"Unsupported channel. Must be one of: {valid_channels}")
         return super().model_validate(values)
+
+
+class AlertConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    alert_type: Optional[str] = None
+    channel: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+    integration_id: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class IntegrationCreate(BaseModel):
+    type: str = Field(..., description="Channel type: telegram, slack, webhook, email, whatsapp")
+    name: str
+    secrets_json: dict[str, Any] = {}
+    enabled: bool = True
+
+    def model_validate(self, values):
+        valid_types = {"webhook", "slack", "telegram", "whatsapp", "email"}
+        if values.get("type") not in valid_types:
+            raise ValueError(f"Unsupported integration type. Must be one of: {valid_types}")
+        return super().model_validate(values)
+
+
+class IntegrationUpdate(BaseModel):
+    type: Optional[str] = None
+    name: Optional[str] = None
+    secrets_json: Optional[dict[str, Any]] = None
+    enabled: Optional[bool] = None
 
 
 class DiscoveryRequest(BaseModel):
@@ -230,6 +349,35 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class SignupRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    email: EmailStr
+    name: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("username")
+    @classmethod
+    def _username_safe(cls, v: str) -> str:
+        import re
+        if not re.match(r"^[A-Za-z0-9_.-]+$", v):
+            raise ValueError("username may only contain letters, digits, _.-")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _password_strong(cls, v: str) -> str:
+        import re
+        if not re.search(r"[a-z]", v):
+            raise ValueError("password must include a lowercase letter")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("password must include an uppercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("password must include a digit")
+        if not re.search(r"[^A-Za-z0-9]", v):
+            raise ValueError("password must include a symbol")
+        return v
+
+
 class ConfigUpdate(BaseModel):
     topology_interval: Optional[int] = None
     check_interval: Optional[int] = None
@@ -251,8 +399,44 @@ async def auth_login(req: LoginRequest):
     return resp
 
 
+@app.post("/api/auth/signup", status_code=201)
+async def auth_signup(req: SignupRequest):
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    if await db_client.get_user_by_username(req.username):
+        raise HTTPException(status_code=409, detail="Username already taken")
+    if await db_client.get_user_by_email(req.email):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    user = await db_client.create_user(
+        req.username, hash_password(req.password), email=req.email, name=req.name,
+    )
+    token = create_access_token(req.username)
+    resp = JSONResponse(
+        status_code=201,
+        content={
+            "token": token,
+            "username": user["username"],
+            "name": user.get("name"),
+            "email": user.get("email"),
+            "role": user.get("role", "admin"),
+        },
+    )
+    resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400)
+    return resp
+
+
 @app.get("/api/auth/me")
 async def auth_me(user: str = Depends(need_auth)):
+    if db_client:
+        row = await db_client.get_user_by_username(user)
+        if row:
+            return {
+                "username": row["username"],
+                "email": row.get("email"),
+                "name": row.get("name"),
+                "role": row.get("role", "admin"),
+                "authenticated": True,
+            }
     return {"username": user, "authenticated": True}
 
 
@@ -561,7 +745,39 @@ async def create_network(network: NetworkCreate):
     """Create a new network."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
-    return await db_client.create_network(network.model_dump())
+    created = await db_client.create_network(network.model_dump())
+
+    # If the network has a CIDR, auto-rescan it in the background and
+    # emit a devices_refresh SSE event when discovery finishes.
+    cidr = (created or {}).get("cidr")
+    if cidr:
+        async def _auto_scan():
+            try:
+                await broadcast_event(
+                    "rescan_started",
+                    {"network_range": cidr, "network_id": created.get("id")},
+                )
+                stats = await add_discovered_devices(
+                    db_client, cidr, timeout=2.0, max_concurrent=50, method="all"
+                )
+                await broadcast_event(
+                    "rescan_completed",
+                    {
+                        "network_range": cidr,
+                        "network_id": created.get("id"),
+                        "stats": stats,
+                    },
+                )
+                await broadcast_event(
+                    "devices_refresh",
+                    {"stats": stats, "source": "auto_rescan", "network_range": cidr},
+                )
+            except Exception as e:
+                logger.warning(f"auto-rescan failed for {cidr}: {e}")
+
+        asyncio.create_task(_auto_scan())
+
+    return created
 
 
 VALID_NETWORK_TYPES = {"lan", "wan", "wifi", "sfp", "console", "bmc", "mgmt", "dmz", "vlan", "vpn", "custom"}
@@ -633,12 +849,39 @@ async def assign_device_network(device_id: str, network_id: str):
 
 # Topology history endpoint (Phase 6)
 @app.get("/topology/history")
-async def get_topology_history(limit: int = 100):
+async def get_topology_history(
+    limit: int = 100,
+    event_type: str = None,
+    from_time: str = None,
+    to_time: str = None,
+    offset: int = 0,
+):
     """Get topology change history for auditing and trend analysis."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    return {"events": await db_client.get_topology_history(limit)}
+    events = await db_client.get_topology_history(limit, event_type, from_time, to_time, offset)
+    total = len(events)  # Simplified; ideally a separate COUNT query
+    return {"events": events, "total": total}
+
+
+@app.get("/topology/snapshot/{event_id}")
+async def get_topology_snapshot(event_id: int):
+    """Get topology nodes+links that existed at a specific history event."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    event = await db_client.get_topology_history(limit=1, offset=event_id - 1)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Return current topology as the "after" snapshot
+    nodes = await db_client.get_topology_nodes()
+    links = await db_client.get_topology_links()
+    return {
+        "event": event[0],
+        "topology": {"nodes": nodes, "links": links},
+    }
 
 
 # Discovery endpoint
@@ -657,7 +900,127 @@ async def discover_network(request: DiscoveryRequest):
         method=request.method,
     )
 
+    await broadcast_event("devices_refresh", {"stats": stats, "source": "discover"})
     return stats
+
+
+class RescanRequest(BaseModel):
+    network_range: str
+    community: str = "public"
+    method: str = "all"
+    replace: bool = True
+
+
+@app.post("/discover/rescan")
+async def rescan_network(request: RescanRequest):
+    """Wipe stored devices/topology, then rediscover the supplied range."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    if request.replace:
+        stats = await rescan_and_replace(
+            db_client,
+            request.network_range,
+            request.community,
+            timeout=2.0,
+            max_concurrent=50,
+            method=request.method,
+        )
+    else:
+        stats = await add_discovered_devices(
+            db_client,
+            request.network_range,
+            request.community,
+            timeout=2.0,
+            max_concurrent=50,
+            method=request.method,
+        )
+
+    await broadcast_event(
+        "devices_refresh",
+        {"stats": stats, "source": "rescan", "network_range": request.network_range},
+    )
+    return stats
+
+
+@app.get("/events/stream")
+async def stream_events():
+    """Generic SSE feed: devices_refresh, rescan_started, rescan_completed."""
+
+    async def generate():
+        queue: asyncio.Queue = asyncio.Queue()
+        event_subscribers.append(queue)
+        try:
+            yield f"data: {json.dumps({'type': 'hello'})}\n\n"
+            while True:
+                msg = await queue.get()
+                yield f"data: {msg}\n\n"
+        except asyncio.CancelledError:
+            raise
+        finally:
+            event_subscribers.remove(queue)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.delete("/devices")
+async def clear_all_devices(user: str = Depends(need_auth)):
+    """Drop every device + orphan topology. Used by 'Reset / Rescan' UI."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    removed = await db_client.clear_all_devices()
+    await broadcast_event("devices_refresh", {"stats": {"cleared": removed, "added": 0}, "source": "clear_all"})
+    return {"status": "cleared", "removed": removed}
+
+
+@app.post("/devices/clear-mocks")
+async def clear_mock_devices(user: str = Depends(need_auth)):
+    """Remove devices inserted by simulate_devices.py / /topology/simulate.
+
+    Heuristic: anything with discovery_method='simulated' or a 192.168.1.x IP and
+    name matching the demo set, or any 'Core-Router-*'/'Access-SW-*'/'Firewall-*'
+    device. Falls back to clearing every device if nothing else remains.
+    """
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    devices = await db_client.list_devices()
+    mock_names = {
+        "Core-Router-1", "Core-Router-2",
+        "Distribution-SW-1", "Distribution-SW-2",
+        "Access-SW-1", "Access-SW-2", "Access-SW-3",
+        "Firewall-1",
+    }
+
+    targets: list[str] = []
+    for d in devices:
+        name = d.get("name", "") or ""
+        ip = d.get("ip_address", "") or ""
+        method = d.get("discovery_method", "") or ""
+        if method == "simulated":
+            targets.append(d.get("id") or ip)
+        elif name in mock_names:
+            targets.append(d.get("id") or ip)
+        elif name.startswith(("Core-Router-", "Distribution-SW-", "Access-SW-", "Firewall-")):
+            targets.append(d.get("id") or ip)
+
+    if not targets:
+        return {"status": "noop", "removed": 0, "matched": 0}
+
+    removed = await db_client.bulk_delete_devices(targets)
+    await broadcast_event(
+        "devices_refresh",
+        {"stats": {"cleared": removed, "matched": len(targets)}, "source": "clear_mocks"},
+    )
+    return {"status": "cleared", "matched": len(targets), "removed": removed}
 
 
 # Poller stats endpoint
@@ -694,15 +1057,112 @@ async def create_alert(alert: AlertConfigCreate):
             detail=f"Unsupported channel. Must be one of: {valid_channels}",
         )
 
+    # Validate integration_id belongs to same channel type, if provided
+    if alert.integration_id:
+        integration = await db_client.get_integration(alert.integration_id)
+        if not integration:
+            raise HTTPException(status_code=400, detail="Unknown integration_id")
+        if integration.get("type") != alert.channel:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Integration type '{integration.get('type')}' does not match channel '{alert.channel}'",
+            )
+
+    # Dedup: same (alert_type, channel, config) means duplicate rule
+    existing = await db_client.find_alert_config_by_signature(
+        alert.alert_type, alert.channel, alert.config,
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "An alert rule with the same alert_type, channel, and config already exists",
+                "existing_id": existing["id"],
+                "existing_name": existing.get("name"),
+            },
+        )
+
     return await db_client.create_alert_config(
         {
             "name": alert.name,
             "alert_type": alert.alert_type,
             "channel": alert.channel,
             "config": alert.config,
+            "integration_id": alert.integration_id,
             "enabled": alert.enabled,
         }
     )
+
+
+@app.put("/alerts/{alert_id}")
+async def update_alert(alert_id: str, alert: AlertConfigUpdate):
+    """Update an existing alert configuration."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    update_data = alert.model_dump(exclude_unset=True)
+
+    if "channel" in update_data:
+        valid_channels = {"webhook", "slack", "telegram", "whatsapp", "email"}
+        if update_data["channel"] not in valid_channels:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported channel. Must be one of: {valid_channels}",
+            )
+
+    if update_data.get("integration_id"):
+        integration = await db_client.get_integration(update_data["integration_id"])
+        if not integration:
+            raise HTTPException(status_code=400, detail="Unknown integration_id")
+        target_channel = update_data.get("channel")
+        existing = await db_client._get_alert_config(alert_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        if target_channel is None:
+            target_channel = existing.get("channel")
+        if integration.get("type") != target_channel:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Integration type '{integration.get('type')}' does not match channel '{target_channel}'",
+            )
+
+    # Check dedup if relevant fields change
+    if any(k in update_data for k in ("alert_type", "channel", "config")):
+        existing = await db_client._get_alert_config(alert_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        merged_type = update_data.get("alert_type", existing.get("alert_type"))
+        merged_channel = update_data.get("channel", existing.get("channel"))
+        merged_config = update_data.get("config", existing.get("config_json") or {})
+        dup = await db_client.find_alert_config_by_signature(
+            merged_type, merged_channel, merged_config, exclude_id=alert_id,
+        )
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "An alert rule with the same alert_type, channel, and config already exists",
+                    "existing_id": dup["id"],
+                    "existing_name": dup.get("name"),
+                },
+            )
+
+    result = await db_client.update_alert_config(alert_id, update_data)
+    if not result:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return result
+
+
+@app.delete("/alerts/{alert_id}")
+async def delete_alert(alert_id: str):
+    """Delete an alert configuration and its history."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    deleted = await db_client.delete_alert_config(alert_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "deleted", "id": alert_id}
 
 
 @app.get("/alerts/history")
@@ -764,7 +1224,12 @@ async def test_alert(alert_id: str):
         alert_type="test",
     )
 
-    channel = alert_service.get_notification_channel(config["channel"], config["config_json"])
+    channel = await alert_service.get_notification_channel(
+        config["channel"],
+        config["config_json"],
+        integration_id=config.get("integration_id"),
+        db_client=db_client,
+    )
     if not channel:
         raise HTTPException(status_code=400, detail="Invalid channel type")
 
@@ -779,6 +1244,127 @@ async def test_alert(alert_id: str):
             success = await channel.send(message)
 
         return {"sent": success, "channel": config["channel"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Integration endpoints
+@app.get("/integrations")
+async def list_integrations(type: Optional[str] = None):
+    """List integrations, optionally filtered by type."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    return await db_client.list_integrations(type=type)
+
+
+@app.post("/integrations")
+async def create_integration(data: IntegrationCreate):
+    """Create a new integration (Telegram bot, Slack webhook, etc.)."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    try:
+        return await db_client.create_integration({
+            "type": data.type,
+            "name": data.name,
+            "secrets_json": data.secrets_json,
+            "enabled": data.enabled,
+        })
+    except Exception as e:
+        if "UNIQUE" in str(e) or "unique" in str(e):
+            raise HTTPException(
+                status_code=409,
+                detail=f"An integration of type '{data.type}' with name '{data.name}' already exists",
+            )
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/integrations/{integration_id}")
+async def get_integration(integration_id: str):
+    """Get a single integration by ID."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    result = await db_client.get_integration(integration_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Integration not found")
+    return result
+
+
+@app.put("/integrations/{integration_id}")
+async def update_integration(integration_id: str, data: IntegrationUpdate):
+    """Update an existing integration."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    update_data = data.model_dump(exclude_unset=True)
+    if "type" in update_data:
+        valid_types = {"webhook", "slack", "telegram", "whatsapp", "email"}
+        if update_data["type"] not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported integration type. Must be one of: {valid_types}",
+            )
+    try:
+        result = await db_client.update_integration(integration_id, update_data)
+    except Exception as e:
+        if "UNIQUE" in str(e) or "unique" in str(e):
+            raise HTTPException(status_code=409, detail="Name collision with existing integration")
+        raise HTTPException(status_code=400, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Integration not found")
+    return result
+
+
+@app.delete("/integrations/{integration_id}")
+async def delete_integration(integration_id: str):
+    """Delete an integration. Blocked if alert rules reference it."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    success, err = await db_client.delete_integration(integration_id)
+    if not success:
+        if err == "not found":
+            raise HTTPException(status_code=404, detail="Integration not found")
+        raise HTTPException(status_code=409, detail=err)
+    return {"status": "deleted", "id": integration_id}
+
+
+@app.post("/integrations/{integration_id}/test")
+async def test_integration(integration_id: str):
+    """Send a test message through the integration."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    if not alert_service:
+        raise HTTPException(status_code=503, detail="Alert service not initialized")
+
+    integration = await db_client.get_integration(integration_id)
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integration not found")
+
+    from src.api.services.notifications.base import NotificationMessage
+
+    message = NotificationMessage(
+        title="NetOps Integration Test",
+        message="This is a test from NetOps. If you see this, the integration is configured correctly.",
+        severity="info",
+        alert_type="integration_test",
+    )
+
+    channel = await alert_service.get_notification_channel(
+        integration["type"],
+        integration.get("secrets_json") or {},
+        db_client=db_client,
+    )
+    if not channel:
+        raise HTTPException(status_code=400, detail="Invalid integration type")
+
+    valid, error = channel.validate_config()
+    if not valid:
+        raise HTTPException(status_code=400, detail=f"Invalid config: {error}")
+
+    try:
+        if integration["type"].lower() == "email":
+            success = channel.send(message)
+        else:
+            success = await channel.send(message)
+        return {"sent": success, "type": integration["type"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

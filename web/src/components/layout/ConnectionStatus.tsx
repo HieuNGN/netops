@@ -9,7 +9,6 @@ export function ConnectionStatus() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const checkConnection = async () => {
-    // Cancel previous request if still running
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -18,7 +17,7 @@ export function ConnectionStatus() {
     setIsChecking(true);
 
     try {
-      await apiClient.get('/health', {
+      await apiClient.get('/api/health', {
         timeout: 3000,
         signal: abortControllerRef.current.signal
       });
@@ -46,8 +45,8 @@ export function ConnectionStatus() {
     <div
       className={`flex items-center space-x-2 px-3 py-1.5 rounded-sm text-xs font-medium transition-colors ${
         isOnline
-          ? 'bg-[#defbe6] text-[#24a148] dark:bg-[#142811] dark:text-[#42be65]'
-          : 'bg-[#fff0f1] text-[#da1e28] dark:bg-[#520408] dark:text-[#ff8389]'
+          ? 'bg-badge-success-bg text-badge-success-fg'
+          : 'bg-badge-destructive-bg text-badge-destructive-fg'
       }`}
       title={isOnline ? `Backend connected${lastCheck ? ` • Last check: ${lastCheck.toLocaleTimeString()}` : ''}` : 'Backend disconnected - retrying...'}
     >

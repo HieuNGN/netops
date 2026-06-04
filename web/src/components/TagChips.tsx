@@ -27,10 +27,10 @@ export function TagChips({ tags, onChange }: Props) {
       {tags.map((tag) => (
         <span
           key={tag}
-          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-[#e0e0e0] dark:bg-[#393939] text-[#161616] dark:text-[#e0e0e0] text-xs rounded-sm"
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-badge-neutral-bg text-badge-neutral-fg text-xs rounded-sm"
         >
           {tag}
-          <button onClick={() => removeTag(tag)} className="hover:text-[#da1e28]"><X className="h-2.5 w-2.5" /></button>
+          <button onClick={() => removeTag(tag)} className="hover:text-destructive"><X className="h-2.5 w-2.5" /></button>
         </span>
       ))}
       {editing ? (
@@ -43,13 +43,13 @@ export function TagChips({ tags, onChange }: Props) {
           onKeyDown={(e) => { if (e.key === 'Enter') addTag(); if (e.key === 'Escape') { setEditing(false); setDraft(''); } }}
           placeholder="new tag..."
           maxLength={20}
-          className="w-20 px-1 py-0.5 text-xs border rounded-sm bg-white dark:bg-[#262626] border-[#c6c6c6] dark:border-[#525252] text-[#161616] dark:text-white outline-none focus:border-[#da1e28]"
+          className="w-20 px-1 py-0.5 text-xs border rounded-sm bg-card border-input text-foreground outline-none focus:border-ring"
         />
       ) : (
         tags.length < 5 && (
           <button
             onClick={() => setEditing(true)}
-            className="px-1.5 py-0.5 text-xs border border-dashed border-[#c6c6c6] dark:border-[#525252] text-[#a8a8a8] hover:text-[#525252] rounded-sm"
+            className="px-1.5 py-0.5 text-xs border border-dashed border-input text-muted-foreground hover:text-foreground rounded-sm"
           >
             + tag
           </button>

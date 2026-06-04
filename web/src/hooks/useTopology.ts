@@ -51,7 +51,6 @@ export function useTopology() {
       };
 
       eventSourceRef.current.onopen = () => {
-        console.log('Topology stream connected');
         setIsStreaming(true);
       };
     };

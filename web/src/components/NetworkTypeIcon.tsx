@@ -15,17 +15,17 @@ const iconMap: Record<string, typeof Globe> = {
 };
 
 const colorMap: Record<string, string> = {
-  lan: 'text-[#24a148] dark:text-[#42be65]',
-  wan: 'text-[#0f62fe] dark:text-[#78a9ff]',
-  wifi: 'text-[#1192e8] dark:text-[#82cfff]',
-  sfp: 'text-[#8a3ffc] dark:text-[#be95ff]',
-  console: 'text-[#525252] dark:text-[#a8a8a8]',
-  bmc: 'text-[#da1e28] dark:text-[#ff8389]',
-  mgmt: 'text-[#0072c3] dark:text-[#82cfff]',
-  dmz: 'text-[#f1c21b] dark:text-[#fddc69]',
-  vlan: 'text-[#00856a] dark:text-[#44e0c0]',
-  vpn: 'text-[#6929c4] dark:text-[#be95ff]',
-  custom: 'text-[#525252] dark:text-[#a8a8a8]',
+  lan: 'text-emerald-600 dark:text-emerald-400',
+  wan: 'text-[#0f62fe] dark:text-info',
+  wifi: 'text-[#1192e8] dark:text-info',
+  sfp: 'text-[#8a3ffc] dark:text-accent',
+  console: 'text-muted-foreground',
+  bmc: 'text-[#da1e28] dark:text-destructive-foreground',
+  mgmt: 'text-[#0072c3] dark:text-info',
+  dmz: 'text-[#f1c21b] dark:text-warning',
+  vlan: 'text-[#00856a] dark:text-success',
+  vpn: 'text-[#6929c4] dark:text-accent',
+  custom: 'text-muted-foreground',
 };
 
 export function NetworkTypeIcon({ type, className }: { type: string | null; className?: string }) {

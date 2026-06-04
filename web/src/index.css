@@ -3,6 +3,7 @@
 @variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* Core palette */
   --background: 0 0% 100%;
   --foreground: 0 0% 8.6%;
   --card: 0 0% 95.7%;
@@ -23,9 +24,61 @@
   --input: 0 0% 87.8%;
   --ring: 357 78% 48%;
   --radius: 0.125rem;
+  --success: 142 69% 45%;
+  --success-foreground: 0 0% 100%;
+  --warning: 45 93% 47%;
+  --warning-foreground: 0 0% 0%;
+  --info: 217 91% 60%;
+  --info-foreground: 0 0% 100%;
+
+  /* Button tokens — light */
+  --btn-primary-bg: 0 0% 9%;
+  --btn-primary-fg: 0 0% 100%;
+  --btn-primary-hover: 0 0% 32%;
+  --btn-accent-bg: 217 91% 60%;
+  --btn-accent-fg: 0 0% 100%;
+  --btn-accent-hover: 217 91% 54%;
+  --btn-success-bg: 142 69% 45%;
+  --btn-success-fg: 0 0% 100%;
+  --btn-success-hover: 142 69% 38%;
+  --btn-destructive-bg: 357 78% 48%;
+  --btn-destructive-fg: 0 0% 100%;
+  --btn-destructive-hover: 357 78% 42%;
+  --btn-ghost-hover: 0 0% 87.8%;
+
+  /* Surface tokens — light */
+  --surface-hover: 0 0% 95.7%;
+  --surface-pressed: 0 0% 91%;
+  --surface-subtle: 0 0% 96.8%;
+
+  /* Badge tokens — light (tinted backgrounds) */
+  --badge-success-bg: 142 69% 92%;
+  --badge-success-fg: 142 71% 36%;
+  --badge-destructive-bg: 357 78% 92%;
+  --badge-destructive-fg: 357 78% 40%;
+  --badge-warning-bg: 45 93% 92%;
+  --badge-warning-fg: 35 77% 38%;
+  --badge-info-bg: 217 91% 93%;
+  --badge-info-fg: 217 91% 46%;
+  --badge-neutral-bg: 0 0% 90%;
+  --badge-neutral-fg: 0 0% 20%;
+
+  /* Chart & canvas */
+  --grid-bg: #f5f5f5;
+  --grid-dot: #d0d0d0;
+  --chart-tooltip-bg: 0 0% 100%;
+  --chart-tooltip-fg: 0 0% 8.6%;
+  --chart-tooltip-border: 0 0% 87.8%;
+  --chart-axis: 0 0% 45%;
+  --canvas-link-color: #a8a8a8;
+  --canvas-halo-bg: rgba(245, 245, 245, 0.85);
+  --canvas-halo-fg: 0 0% 8.6%;
+  --canvas-node-stroke: 0 0% 100%;
+  --canvas-shadow: rgba(0, 0, 0, 0.15);
 }
 
 .dark {
+  /* Core palette — dark */
   --background: 0 0% 0%;
   --foreground: 0 0% 95.7%;
   --card: 0 0% 8%;
@@ -45,6 +98,57 @@
   --border: 0 0% 18%;
   --input: 0 0% 18%;
   --ring: 357 100% 76%;
+  --success: 142 71% 58%;
+  --success-foreground: 0 0% 100%;
+  --warning: 45 93% 65%;
+  --warning-foreground: 0 0% 0%;
+  --info: 217 91% 68%;
+  --info-foreground: 0 0% 100%;
+
+  /* Button tokens — dark */
+  --btn-primary-bg: 0 0% 95.7%;
+  --btn-primary-fg: 0 0% 0%;
+  --btn-primary-hover: 0 0% 85%;
+  --btn-accent-bg: 217 91% 68%;
+  --btn-accent-fg: 0 0% 100%;
+  --btn-accent-hover: 217 91% 75%;
+  --btn-success-bg: 142 71% 58%;
+  --btn-success-fg: 0 0% 100%;
+  --btn-success-hover: 142 71% 68%;
+  --btn-destructive-bg: 357 100% 76%;
+  --btn-destructive-fg: 0 0% 0%;
+  --btn-destructive-hover: 357 100% 82%;
+  --btn-ghost-hover: 0 0% 18%;
+
+  /* Surface tokens — dark */
+  --surface-hover: 0 0% 14%;
+  --surface-pressed: 0 0% 20%;
+  --surface-subtle: 0 0% 6%;
+
+  /* Badge tokens — dark (more opaque for contrast) */
+  --badge-success-bg: 142 71% 20%;
+  --badge-success-fg: 142 71% 72%;
+  --badge-destructive-bg: 357 100% 20%;
+  --badge-destructive-fg: 357 100% 76%;
+  --badge-warning-bg: 45 93% 20%;
+  --badge-warning-fg: 45 93% 72%;
+  --badge-info-bg: 217 91% 20%;
+  --badge-info-fg: 217 91% 72%;
+  --badge-neutral-bg: 0 0% 18%;
+  --badge-neutral-fg: 0 0% 65.9%;
+
+  /* Chart & canvas — dark */
+  --grid-bg: #1a1a1a;
+  --grid-dot: #404040;
+  --chart-tooltip-bg: 0 0% 12%;
+  --chart-tooltip-fg: 0 0% 95.7%;
+  --chart-tooltip-border: 0 0% 24%;
+  --chart-axis: 0 0% 55%;
+  --canvas-link-color: #525252;
+  --canvas-halo-bg: rgba(26, 26, 26, 0.85);
+  --canvas-halo-fg: 0 0% 95.7%;
+  --canvas-node-stroke: 0 0% 8%;
+  --canvas-shadow: rgba(0, 0, 0, 0.4);
 }
 
 :root {

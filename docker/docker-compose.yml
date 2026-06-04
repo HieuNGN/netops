@@ -1,50 +1,85 @@
-version: '3.8'
+# ============================================================
+# NetOps - Comprehensive Docker Compose Configuration
+# ============================================================
+# Services:
+#   - postgres   : PostgreSQL database with persistent volume
+#   - backend    : FastAPI Python application (SNMP, topology, API)
+#   - frontend   : Nginx serving built React SPA + reverse proxy
+#
+# Features:
+#   - Health checks on all services
+#   - Proper startup ordering (depends_on with condition)
+#   - Persistent volumes for data
+#   - Environment-based configuration
+#   - Development override support
+#   - Network isolation
+# ============================================================
 
 services:
+  # --------------------------------------------------------------
   # PostgreSQL Database
+  # --------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
     container_name: netops-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: netops
-      POSTGRES_USER: netops
-      POSTGRES_PASSWORD: netops
+      POSTGRES_DB: ${POSTGRES_DB:-netops}
+      POSTGRES_USER: ${POSTGRES_USER:-netops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netops}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U netops -d netops"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-netops} -d ${POSTGRES_DB:-netops}"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
       - netops-network
+    # Resource limits (optional, remove if causing issues)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2.0'
+    #       memory: 1G
 
-  # Backend API Server
+  # --------------------------------------------------------------
+  # Backend API Server (FastAPI + Uvicorn)
+  # --------------------------------------------------------------
   backend:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
     container_name: netops-backend
+    restart: unless-stopped
     environment:
-      # Database configuration
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: netops
-      DB_USER: netops
-      DB_PASSWORD: netops
-      # SNMP configuration
-      SNMP_HOST: 192.168.1.1
-      SNMP_COMMUNITY: public
-      SNMP_TIMEOUT: 2
-      SNMP_RETRIES: 1
-      # Server configuration
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-netops}
+      POSTGRES_USER: ${POSTGRES_USER:-netops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netops}
+      # Server
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8000
-      LOG_LEVEL: INFO
+      # SNMP
+      SNMP_HOST: ${SNMP_HOST:-127.0.0.1}
+      SNMP_COMMUNITY: ${SNMP_COMMUNITY:-public}
+      SNMP_TIMEOUT: ${SNMP_TIMEOUT:-5}
+      SNMP_RETRIES: ${SNMP_RETRIES:-3}
+      # Auth
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Python
+      PYTHONUNBUFFERED: 1
+      PYTHONDONTWRITEBYTECODE: 1
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - backend_data:/app/data
     depends_on:
@@ -52,37 +87,53 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - netops-network
+
+  # --------------------------------------------------------------
+  # Frontend Web Server (Nginx + React SPA)
+  # --------------------------------------------------------------
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    container_name: netops-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:80/"]
+      interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
     networks:
       - netops-network
 
-  # Frontend Web Server
-  frontend:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.frontend
-    container_name: netops-frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    networks:
-      - netops-network
-
+# ============================================================
+# Named Volumes
+# ============================================================
 volumes:
   postgres_data:
     driver: local
   backend_data:
     driver: local
 
+# ============================================================
+# Networks
+# ============================================================
 networks:
   netops-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
