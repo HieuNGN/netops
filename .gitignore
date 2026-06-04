@@ -1,0 +1,68 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+web/.env
+web/.env.*
+
+# Database
+data/
+!data/.gitkeep
+
+# Node / frontend
+node_modules/
+web/dist/
+web/build/
+*.tsbuildinfo
+
+# IDE & editor
+.claude/
+.obsidian/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs (internal plans)
+docs/
+
+# Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+
+# Agent skills & local config
+.agents/
+skills/
+skills-lock.json
+config/
+
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Temporary
+/tmp/
