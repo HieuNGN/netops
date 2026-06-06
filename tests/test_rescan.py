@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 
 from src.storage.sqlite_client import AsyncSQLiteClient
+from tests.conftest import _run_alembic_upgrade_head
 
 
 @pytest_asyncio.fixture
@@ -13,9 +14,9 @@ async def fresh_db():
     """Isolated SQLite client per test, so wipes never leak between cases."""
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
+    _run_alembic_upgrade_head(tmp.name)
     db = AsyncSQLiteClient(db_path=tmp.name)
     await db.connect()
-    await db.init_db()
     yield db
     await db.close()
     os.unlink(tmp.name)

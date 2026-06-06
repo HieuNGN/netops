@@ -101,11 +101,23 @@ class SNMPPoller:
             await asyncio.sleep(self.poll_interval)
 
     async def _retention_loop(self):
-        """Periodic cleanup of old poll history."""
+        """Periodic cleanup of old poll + topology history."""
         while self._running:
             try:
                 await asyncio.sleep(3600)  # hourly
                 await self.db_client.cleanup_poll_history(retention_days=30)
+                # Phase 4: drop old topology_history partitions (PG)
+                # or delete old rows (SQLite fallback). Mirrors the
+                # poll_history retention. Default 90 days.
+                if hasattr(self.db_client, "cleanup_topology_history"):
+                    try:
+                        await self.db_client.cleanup_topology_history(
+                            retention_days=90
+                        )
+                    except Exception as inner_e:
+                        print(
+                            f"[SNMPPoller] Topology history cleanup error: {inner_e}"
+                        )
             except asyncio.CancelledError:
                 break
             except Exception as e:

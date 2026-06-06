@@ -103,6 +103,47 @@ export default {
           bg: "hsl(var(--badge-neutral-bg))",
           fg: "hsl(var(--badge-neutral-fg))",
         },
+        /* IBM Carbon palette */
+        ibm: {
+          blue: "hsl(var(--ibm-blue))",
+          "blue-hover": "hsl(var(--ibm-blue-hover))",
+          red: "hsl(var(--ibm-red))",
+          "red-hover": "hsl(var(--ibm-red-hover))",
+          green: "hsl(var(--ibm-green))",
+          "green-hover": "hsl(var(--ibm-green-hover))",
+          yellow: "hsl(var(--ibm-yellow))",
+          "yellow-hover": "hsl(var(--ibm-yellow-hover))",
+          purple: "hsl(var(--ibm-purple))",
+          "purple-hover": "hsl(var(--ibm-purple-hover))",
+          cyan: "hsl(var(--ibm-cyan))",
+          "cyan-hover": "hsl(var(--ibm-cyan-hover))",
+          magenta: "hsl(var(--ibm-magenta))",
+          teal: "hsl(var(--ibm-teal))",
+        },
+        /* ThinkPad palette */
+        thinkpad: {
+          red: "hsl(var(--thinkpad-red))",
+          "red-hover": "hsl(var(--thinkpad-red-hover))",
+          black: "hsl(var(--thinkpad-black))",
+          trackpoint: "hsl(var(--trackpoint-red))",
+        },
+        /* Cisco palette */
+        cisco: {
+          blue: "hsl(var(--cisco-blue))",
+          "blue-hover": "hsl(var(--cisco-blue-hover))",
+          teal: "hsl(var(--cisco-teal))",
+          green: "hsl(var(--cisco-green))",
+          orange: "hsl(var(--cisco-orange))",
+        },
+        /* Additional vendor palettes */
+        hp: { blue: "hsl(var(--hp-blue))" },
+        dell: { blue: "hsl(var(--dell-blue))" },
+        juniper: { green: "hsl(var(--juniper-green))" },
+        arista: { blue: "hsl(var(--arista-blue))" },
+        fortinet: { red: "hsl(var(--fortinet-red))" },
+        paloalto: { orange: "hsl(var(--paloalto-orange))" },
+        ubiquiti: { blue: "hsl(var(--ubiquiti-blue))" },
+        mikrotik: { red: "hsl(var(--mikrotik-red))" },
         /* Chart/canvas */
         "chart-tooltip": {
           bg: "hsl(var(--chart-tooltip-bg))",

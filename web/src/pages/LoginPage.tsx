@@ -68,15 +68,15 @@ export function LoginPage() {
   const switchMode = (m: Mode) => { setMode(m); setError(''); };
 
   return (
-    <div className="min-h-screen w-full grid grid-cols-1 md:grid-cols-[1.1fr_1fr] bg-white text-foreground dark:bg-black dark:text-foreground font-mono">
-      <aside className="relative hidden md:flex flex-col justify-between p-10 border-r border-foreground dark:border-border bg-[#0a0a0a] text-[#f4f4f4] overflow-hidden">
+    <div className="min-h-screen w-full grid grid-cols-1 md:grid-cols-[1.1fr_1fr] bg-background text-foreground font-mono">
+      <aside className="relative hidden md:flex flex-col justify-between p-10 border-r border-border bg-[#0a0a0a] text-[#f4f4f4] overflow-hidden">
         <div className="absolute inset-0 pointer-events-none opacity-[0.07]"
              style={{
                backgroundImage:
                  'repeating-linear-gradient(0deg, transparent 0 23px, #f4f4f4 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, #f4f4f4 23px 24px)',
              }} />
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-10 h-10 grid place-items-center bg-btn-destructive text-btn-destructive-foreground">
+          <div className="w-10 h-10 grid place-items-center bg-thinkpad-red text-white">
             <Shield className="h-5 w-5" />
           </div>
           <div className="leading-tight">
@@ -139,7 +139,7 @@ export function LoginPage() {
                   className={
                     'px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] font-bold ' +
                     (mode === m
-                      ? 'bg-btn-destructive text-btn-destructive-foreground'
+                      ? 'bg-thinkpad-red text-white'
                       : 'bg-transparent text-foreground hover:bg-surface-hover')
                   }
                 >
@@ -263,7 +263,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="group w-full flex items-center justify-center gap-2 py-2.5 bg-btn-destructive text-btn-destructive-foreground uppercase tracking-[0.2em] text-xs font-bold hover:bg-btn-destructive-hover disabled:opacity-50"
+              className="group w-full flex items-center justify-center gap-2 py-2.5 bg-thinkpad-red text-white uppercase tracking-[0.2em] text-xs font-bold hover:bg-thinkpad-red-hover disabled:opacity-50"
             >
               {loading
                 ? (mode === 'signin' ? 'Authenticating...' : 'Provisioning...')

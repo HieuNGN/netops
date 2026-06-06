@@ -40,241 +40,88 @@ class AsyncSQLiteClient:
             self._db = None
 
     async def init_db(self):
-        """Initialize database schema."""
-        await self._db.executescript("""
-            CREATE TABLE IF NOT EXISTS devices (
-                id TEXT PRIMARY KEY,
-                name TEXT,
-                ip_address TEXT UNIQUE NOT NULL,
-                community TEXT DEFAULT 'public',
-                status TEXT DEFAULT 'unknown',
-                sys_descr TEXT,
-                discovery_method TEXT DEFAULT 'manual',
-                network_id TEXT,
-                snmp_version TEXT DEFAULT '2c',
-                snmpv3_username TEXT,
-                snmpv3_auth_protocol TEXT,
-                snmpv3_auth_key TEXT,
-                snmpv3_priv_protocol TEXT,
-                snmpv3_priv_key TEXT,
-                last_polled TEXT,
-                created TEXT DEFAULT (datetime('now')),
-                updated TEXT DEFAULT (datetime('now'))
-            );
+        """Ensure the schema is current.
 
-            CREATE TABLE IF NOT EXISTS topology_nodes (
-                id TEXT PRIMARY KEY,
-                device_id TEXT,
-                network_id TEXT,
-                label TEXT,
-                node_type TEXT DEFAULT 'device',
-                status TEXT DEFAULT 'unknown',
-                created TEXT DEFAULT (datetime('now')),
-                updated TEXT DEFAULT (datetime('now'))
-            );
+        Two cases:
+          1. Empty DB (no `alembic_version` table) -> run `alembic
+             upgrade head` to bring the schema to current.
+          2. DB with `alembic_version` -> no-op; the lifespan's
+             auto-migrate has already ensured the schema is current.
 
-            CREATE TABLE IF NOT EXISTS topology_links (
-                id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                network_id TEXT,
-                source_port TEXT,
-                target_port TEXT,
-                status TEXT DEFAULT 'active',
-                created TEXT DEFAULT (datetime('now')),
-                updated TEXT DEFAULT (datetime('now'))
-            );
+        This dual behavior lets test fixtures and the lifespan
+        startup code call `init_db()` without knowing whether
+        migrations have run, while keeping the application code
+        path simple (migrations are the source of truth).
 
-            CREATE TABLE IF NOT EXISTS poll_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_id TEXT,
-                status TEXT,
-                response_time_ms REAL,
-                error TEXT,
-                polled_at TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS alert_configs (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                alert_type TEXT NOT NULL,
-                channel TEXT NOT NULL,
-                config_json TEXT,
-                integration_id TEXT,
-                enabled INTEGER DEFAULT 1,
-                created TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS integrations (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                name TEXT NOT NULL,
-                secrets_json TEXT,
-                enabled INTEGER DEFAULT 1,
-                created TEXT DEFAULT (datetime('now')),
-                UNIQUE(type, name)
-            );
-
-            CREATE TABLE IF NOT EXISTS alert_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                alert_config_id TEXT,
-                triggered_at TEXT DEFAULT (datetime('now')),
-                resolved_at TEXT,
-                message TEXT,
-                status TEXT DEFAULT 'triggered'
-            );
-
-            CREATE TABLE IF NOT EXISTS service_checks (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                check_type TEXT NOT NULL,
-                target TEXT NOT NULL,
-                interval_seconds INTEGER DEFAULT 60,
-                timeout_seconds INTEGER DEFAULT 10,
-                config_json TEXT,
-                enabled INTEGER DEFAULT 1,
-                created TEXT DEFAULT (datetime('now')),
-                updated TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS check_results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                check_id TEXT,
-                status TEXT,
-                response_time_ms REAL,
-                message TEXT,
-                details TEXT,
-                error TEXT,
-                checked_at TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip_address);
-            CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
-            CREATE INDEX IF NOT EXISTS idx_nodes_device_id ON topology_nodes(device_id);
-            CREATE INDEX IF NOT EXISTS idx_nodes_status ON topology_nodes(status);
-            CREATE INDEX IF NOT EXISTS idx_links_source ON topology_links(source_id);
-            CREATE INDEX IF NOT EXISTS idx_links_target ON topology_links(target_id);
-            CREATE INDEX IF NOT EXISTS idx_poll_history_device ON poll_history(device_id);
-            CREATE INDEX IF NOT EXISTS idx_poll_history_polled_at ON poll_history(polled_at);
-            CREATE INDEX IF NOT EXISTS idx_alert_configs_enabled ON alert_configs(enabled);
-            CREATE INDEX IF NOT EXISTS idx_alert_configs_integration ON alert_configs(integration_id);
-            CREATE INDEX IF NOT EXISTS idx_alert_history_config ON alert_history(alert_config_id);
-            CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type);
-            CREATE INDEX IF NOT EXISTS idx_service_checks_type ON service_checks(check_type);
-            CREATE INDEX IF NOT EXISTS idx_service_checks_enabled ON service_checks(enabled);
-            CREATE INDEX IF NOT EXISTS idx_check_results_check_id ON check_results(check_id);
-            CREATE INDEX IF NOT EXISTS idx_check_results_checked_at ON check_results(checked_at);
-
-            -- Topology change history for auditing and trend analysis
-            CREATE TABLE IF NOT EXISTS topology_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type TEXT NOT NULL,
-                node_id TEXT,
-                link_id TEXT,
-                old_status TEXT,
-                new_status TEXT,
-                details TEXT,
-                recorded_at TEXT DEFAULT (datetime('now'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_topology_history_event ON topology_history(event_type);
-            CREATE INDEX IF NOT EXISTS idx_topology_history_recorded_at ON topology_history(recorded_at);
-
-            CREATE TABLE IF NOT EXISTS maintenance_windows (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                start_time TEXT NOT NULL,
-                end_time TEXT NOT NULL,
-                description TEXT,
-                created_at TEXT DEFAULT (datetime('now'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time);
-
-            CREATE TABLE IF NOT EXISTS networks (
-                id TEXT PRIMARY KEY,
-                name TEXT UNIQUE NOT NULL,
-                cidr TEXT,
-                description TEXT,
-                is_default INTEGER DEFAULT 0,
-                network_type TEXT,
-                tags TEXT DEFAULT '[]',
-                last_scanned TEXT,
-                created TEXT DEFAULT (datetime('now')),
-                updated TEXT DEFAULT (datetime('now'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_networks_name ON networks(name);
-            CREATE INDEX IF NOT EXISTS idx_networks_default ON networks(is_default);
-            CREATE INDEX IF NOT EXISTS idx_devices_network ON devices(network_id);
-        """)
-        # Migrate existing tables: add discovery_method if missing
+        See src/storage/migrations/versions/001_initial_schema.py for
+        the canonical baseline.
+        """
+        if self._db is None:
+            return
         try:
-            await self._db.execute(
-                "ALTER TABLE devices ADD COLUMN discovery_method TEXT DEFAULT 'manual'"
+            cursor = await self._db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
             )
+            row = await cursor.fetchone()
+            if row is not None:
+                return  # Schema is managed by Alembic; nothing to do.
         except Exception:
-            pass  # Column already exists
+            return  # If we can't tell, the lifespan's auto-migrate will handle it.
 
-        # Migrate existing tables: add network_id if missing
-        for table in ("devices", "topology_nodes", "topology_links"):
-            try:
-                await self._db.execute(
-                    f"ALTER TABLE {table} ADD COLUMN network_id TEXT"
+        # No alembic_version table. Run migrations synchronously.
+        # This is a one-time bootstrap; subsequent restarts no-op here.
+        def _run_sync() -> None:
+            from alembic import command
+            from alembic.config import Config
+
+            config = Config(
+                os.path.join(
+                    os.path.dirname(__file__),
+                    "..", "storage", "alembic.ini",
                 )
-            except Exception:
-                pass  # Column already exists
-
-        # Migrate networks: add new columns if missing
-        for col, default in [("network_type", "TEXT"), ("tags", "TEXT DEFAULT '[]'"), ("last_scanned", "TEXT")]:
-            try:
-                await self._db.execute(
-                    f"ALTER TABLE networks ADD COLUMN {col} {default}"
-                )
-            except Exception:
-                pass
-
-        # Migrate alert_configs: add integration_id column if missing
-        try:
-            await self._db.execute(
-                "ALTER TABLE alert_configs ADD COLUMN integration_id TEXT"
             )
-        except Exception:
-            pass
-        try:
-            await self._db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_alert_configs_integration ON alert_configs(integration_id)"
+            config.set_main_option(
+                "script_location",
+                os.path.join(
+                    os.path.dirname(__file__),
+                    "..", "storage", "migrations",
+                ),
             )
+            config.set_main_option("sqlalchemy.url", f"sqlite:///{self._db_path}")
+            command.upgrade(config, "head")
+
+        try:
+            await asyncio.to_thread(_run_sync)
         except Exception:
-            pass
+            # Re-raise so the caller knows schema setup failed.
+            raise
 
-        # Create users and app_settings tables
-        await self._db.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE,
-                name TEXT,
-                password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'admin',
-                created TEXT DEFAULT (datetime('now'))
-            );
-            CREATE TABLE IF NOT EXISTS app_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated TEXT DEFAULT (datetime('now'))
-            );
-        """)
+    async def healthcheck(self) -> dict[str, Any]:
+        """Return SQLite probe latency.
 
-        # Idempotent column adds for existing dev DBs pre-migration.
-        # CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
-        existing = {row[1] for row in await (await self._db.execute("PRAGMA table_info(users)")).fetchall()}
-        if "email" not in existing:
-            await self._db.execute("ALTER TABLE users ADD COLUMN email TEXT")
-        if "name" not in existing:
-            await self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
-
-        cursor = await self._db.execute("SELECT 1 FROM app_settings WHERE key = 'config'")
-        if not await cursor.fetchone():
-            await self._db.execute("INSERT INTO app_settings (key, value) VALUES ('config', '{}')")
-        await self._db.commit()
+        Used by `/api/health/db`. Returns `error` status with the
+        exception message if the probe fails.
+        """
+        if self._db is None:
+            return {"status": "disconnected", "backend": "sqlite", "path": self._db_path}
+        try:
+            import time
+            start = time.time()
+            await self._db.execute("SELECT 1")
+            latency_ms = round((time.time() - start) * 1000, 2)
+            return {
+                "status": "connected",
+                "backend": "sqlite",
+                "latency_ms": latency_ms,
+                "path": self._db_path,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "backend": "sqlite",
+                "path": self._db_path,
+                "message": str(e),
+            }
 
     async def cleanup_poll_history(self, retention_days: int = 30):
         """Delete poll history older than retention_days."""
@@ -282,6 +129,31 @@ class AsyncSQLiteClient:
         cutoff = (datetime.datetime.now() - datetime.timedelta(days=retention_days)).isoformat()
         await self._db.execute("DELETE FROM poll_history WHERE polled_at < ?", (cutoff,))
         await self._db.commit()
+
+    async def cleanup_topology_history(self, retention_days: int = 90) -> int:
+        """Delete topology_history rows older than retention_days.
+
+        Mirror of the PG partition-drop path. On SQLite the
+        topology_history table is not partitioned, so we do a
+        row-level DELETE. The retention loop in the poller calls
+        this hourly.
+        """
+        import datetime
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=retention_days)).isoformat()
+        cursor = await self._db.execute(
+            "DELETE FROM topology_history WHERE recorded_at < ?", (cutoff,),
+        )
+        await self._db.commit()
+        return cursor.rowcount
+
+    @property
+    def phase4_partitioning_enabled(self) -> bool:
+        """SQLite fallback does not support partitioning.
+
+        Always returns False on this client; the lifespan's
+        `maintain_topology_partitions()` call is a no-op here.
+        """
+        return False
 
     async def _execute_with_retry(self, op, *args, **kwargs):
         """Run a DB op and retry on transient 'database is locked' / 'busy' errors.
@@ -1020,6 +892,12 @@ class AsyncSQLiteClient:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def clear_alert_history(self) -> int:
+        """Delete all rows from alert_history. Returns count deleted."""
+        cursor = await self._db.execute("DELETE FROM alert_history")
+        await self._db.commit()
+        return cursor.rowcount
 
     async def get_poll_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent poll history with device details."""

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -20,6 +21,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     select,
     insert,
     update,
@@ -37,6 +39,15 @@ def _config_signature(alert_type: str, channel: str, config: dict[str, Any]) -> 
 # SQLAlchemy metadata for schema definition
 Base = type("Base", (), {"metadata": MetaData()})
 
+# ---------------------------------------------------------------------------
+# Table definitions
+#
+# These mirror the schema declared in src/storage/migrations/versions/001_*
+# (the canonical baseline). Keeping them registered on `Base.metadata` is
+# what makes `alembic revision --autogenerate` produce a no-op when the
+# schema is in sync.
+# ---------------------------------------------------------------------------
+
 # Schema definition matching SQLite but with PostgreSQL types
 devices_table = Table(
     "devices",
@@ -48,9 +59,24 @@ devices_table = Table(
     Column("status", String, default="unknown"),
     Column("sys_descr", Text),
     Column("discovery_method", String, default="manual"),
+    Column("snmp_version", String, default="2c"),
+    Column("snmpv3_username", String),
+    Column("snmpv3_auth_protocol", String),
+    Column("snmpv3_auth_key", String),
+    Column("snmpv3_priv_protocol", String),
+    Column("snmpv3_priv_key", String),
+    Column("network_id", String),
+    Column("offline_since", DateTime),
+    Column("last_scanned", DateTime),
     Column("last_polled", String),
     Column("created", DateTime, server_default=func.now()),
     Column("updated", DateTime, server_default=func.now(), onupdate=func.now()),
+    Index("idx_devices_ip", "ip_address"),
+    Index("idx_devices_status", "status"),
+    Index("idx_devices_discovery_method", "discovery_method"),
+    Index("idx_devices_network_id", "network_id"),
+    Index("idx_devices_offline_since", "offline_since"),
+    Index("idx_devices_last_scanned", "last_scanned"),
 )
 
 topology_nodes_table = Table(
@@ -58,11 +84,15 @@ topology_nodes_table = Table(
     Base.metadata,
     Column("id", String, primary_key=True),
     Column("device_id", String),
+    Column("network_id", String),
     Column("label", String),
     Column("node_type", String, default="device"),
     Column("status", String, default="unknown"),
     Column("created", DateTime, server_default=func.now()),
     Column("updated", DateTime, server_default=func.now(), onupdate=func.now()),
+    Index("idx_nodes_device_id", "device_id"),
+    Index("idx_nodes_status", "status"),
+    Index("idx_nodes_network_id", "network_id"),
 )
 
 topology_links_table = Table(
@@ -71,11 +101,15 @@ topology_links_table = Table(
     Column("id", String, primary_key=True),
     Column("source_id", String, nullable=False),
     Column("target_id", String, nullable=False),
+    Column("network_id", String),
     Column("source_port", String),
     Column("target_port", String),
     Column("status", String, default="active"),
     Column("created", DateTime, server_default=func.now()),
     Column("updated", DateTime, server_default=func.now(), onupdate=func.now()),
+    Index("idx_links_source", "source_id"),
+    Index("idx_links_target", "target_id"),
+    Index("idx_links_network_id", "network_id"),
 )
 
 poll_history_table = Table(
@@ -99,8 +133,11 @@ alert_configs_table = Table(
     Column("alert_type", String, nullable=False),
     Column("channel", String, nullable=False),
     Column("config_json", String),
+    Column("integration_id", String),
     Column("enabled", Integer, default=1),
     Column("created", DateTime, server_default=func.now()),
+    Index("idx_alert_configs_enabled", "enabled"),
+    Index("idx_alert_configs_integration", "integration_id"),
 )
 
 alert_history_table = Table(
@@ -112,6 +149,109 @@ alert_history_table = Table(
     Column("resolved_at", DateTime),
     Column("message", Text),
     Column("status", String, default="triggered"),
+    Index("idx_alert_history_config", "alert_config_id"),
+)
+
+users_table = Table(
+    "users",
+    Base.metadata,
+    Column("id", String, primary_key=True),
+    Column("username", String, unique=True, nullable=False),
+    Column("email", String, unique=True),
+    Column("name", String),
+    Column("password_hash", String, nullable=False),
+    Column("role", String, default="admin"),
+    Column("created", DateTime, server_default=func.now()),
+    Column("created_at", DateTime, server_default=func.now()),
+    Index("ix_users_email", "email", unique=True),
+)
+
+app_settings_table = Table(
+    "app_settings",
+    Base.metadata,
+    Column("key", String, primary_key=True),
+    Column("value", String, nullable=False),
+    Column("updated", DateTime, server_default=func.now()),
+)
+
+topology_history_table = Table(
+    "topology_history",
+    Base.metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("event_type", String, nullable=False),
+    Column("node_id", String),
+    Column("link_id", String),
+    Column("source_ip", String),
+    Column("old_status", String),
+    Column("new_status", String),
+    Column("details", String),
+    Column("recorded_at", DateTime, server_default=func.now()),
+    Index("idx_topology_history_event", "event_type"),
+    Index("idx_topology_history_recorded_at", "recorded_at"),
+    Index("idx_topology_history_source_time", "source_ip", "recorded_at"),
+    Index("idx_topology_history_link_time", "link_id", "recorded_at"),
+)
+
+integrations_table = Table(
+    "integrations",
+    Base.metadata,
+    Column("id", String, primary_key=True),
+    Column("type", String, nullable=False),
+    Column("name", String, nullable=False),
+    Column("secrets_json", String),
+    Column("enabled", Integer, default=1),
+    Column("created", DateTime, server_default=func.now()),
+    UniqueConstraint("type", "name", name="uq_integrations_type_name"),
+    Index("idx_integrations_type", "type"),
+)
+
+service_checks_table = Table(
+    "service_checks",
+    Base.metadata,
+    Column("id", String, primary_key=True),
+    Column("name", String, nullable=False),
+    Column("check_type", String, nullable=False),
+    Column("target", String, nullable=False),
+    Column("interval_seconds", Integer, default=60),
+    Column("timeout_seconds", Integer, default=10),
+    Column("config_json", String),
+    Column("enabled", Integer, default=1),
+    Column("created", DateTime, server_default=func.now()),
+    Column("updated", DateTime, server_default=func.now(), onupdate=func.now()),
+    Index("idx_service_checks_type", "check_type"),
+    Index("idx_service_checks_enabled", "enabled"),
+)
+
+check_results_table = Table(
+    "check_results",
+    Base.metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("check_id", String),
+    Column("status", String),
+    Column("response_time_ms", Float),
+    Column("message", Text),
+    Column("details", String),
+    Column("error", Text),
+    Column("checked_at", DateTime, server_default=func.now()),
+    Index("idx_check_results_check_id", "check_id"),
+    Index("idx_check_results_checked_at", "checked_at"),
+)
+
+networks_table = Table(
+    "networks",
+    Base.metadata,
+    Column("id", String, primary_key=True),
+    Column("name", String, unique=True, nullable=False),
+    Column("cidr", String),
+    Column("description", Text),
+    Column("is_default", Integer, default=0),
+    Column("network_type", String),
+    Column("tags", String, default="[]"),
+    Column("last_scanned", DateTime),
+    Column("created", DateTime, server_default=func.now()),
+    Column("updated", DateTime, server_default=func.now(), onupdate=func.now()),
+    Index("idx_networks_name", "name"),
+    Index("idx_networks_default", "is_default"),
 )
 
 maintenance_windows_table = Table(
@@ -123,6 +263,7 @@ maintenance_windows_table = Table(
     Column("end_time", DateTime, nullable=False),
     Column("description", Text),
     Column("created_at", DateTime, server_default=func.now()),
+    Index("idx_maintenance_windows_time", "start_time", "end_time"),
 )
 
 
@@ -132,12 +273,23 @@ class AsyncPostgresClient:
     def __init__(
         self,
         connection_string: Optional[str] = None,
-        min_pool_size: int = 5,
-        max_pool_size: int = 20,
+        min_pool_size: Optional[int] = None,
+        max_pool_size: Optional[int] = None,
     ):
         self._pool: Optional[asyncpg.Pool] = None
-        self._min_pool_size = min_pool_size
-        self._max_pool_size = max_pool_size
+        # Env-var-driven defaults (Phase 3 contract). Operators can
+        # tune without code changes for homelab (4/10) up to
+        # datacenter (8/50) deployments.
+        self._min_pool_size = (
+            min_pool_size
+            if min_pool_size is not None
+            else int(os.getenv("PG_POOL_MIN", "4"))
+        )
+        self._max_pool_size = (
+            max_pool_size
+            if max_pool_size is not None
+            else int(os.getenv("PG_POOL_MAX", "25"))
+        )
 
         # Build connection string from env or use default
         if connection_string is None:
@@ -147,6 +299,11 @@ class AsyncPostgresClient:
 
     def _build_connection_string(self) -> str:
         """Build PostgreSQL connection string from environment."""
+        # DATABASE_URL takes priority over the legacy POSTGRES_* vars.
+        url = os.getenv("DATABASE_URL")
+        if url:
+            return url
+
         host = os.getenv("POSTGRES_HOST", "localhost")
         port = int(os.getenv("POSTGRES_PORT", "5432"))
         database = os.getenv("POSTGRES_DB", "netops")
@@ -158,10 +315,19 @@ class AsyncPostgresClient:
     async def connect(self):
         """Initialize connection pool."""
         if self._pool is None:
-            self._pool = await asyncpg.create_pool(
-                self._connection_string.replace("postgresql+asyncpg://", "postgresql://"),
+            pool_kwargs = dict(
                 min_size=self._min_pool_size,
                 max_size=self._max_pool_size,
+            )
+            # Optional tuning knobs (Phase 3: prevent runaway queries)
+            try:
+                command_timeout = int(os.getenv("PG_COMMAND_TIMEOUT", "60"))
+                pool_kwargs["command_timeout"] = command_timeout
+            except ValueError:
+                pass
+            self._pool = await asyncpg.create_pool(
+                self._connection_string.replace("postgresql+asyncpg://", "postgresql://"),
+                **pool_kwargs,
             )
 
     async def disconnect(self):
@@ -178,230 +344,48 @@ class AsyncPostgresClient:
         async with self._pool.acquire() as conn:
             yield conn
 
+    async def healthcheck(self) -> dict[str, Any]:
+        """Return connection pool stats and a probe-query latency.
+
+        Used by `/api/health/db`. If the pool is not initialized
+        or the probe fails, returns a status of `disconnected` or
+        `error` with the message.
+        """
+        if self._pool is None:
+            return {"status": "disconnected", "backend": "postgresql"}
+        try:
+            start = time.time()
+            async with self._pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            latency_ms = round((time.time() - start) * 1000, 2)
+            return {
+                "status": "connected",
+                "backend": "postgresql",
+                "latency_ms": latency_ms,
+                "pool_size": self._pool.get_size(),
+                "pool_free": self._pool.get_idle_size(),
+                "pool_min": self._min_pool_size,
+                "pool_max": self._max_pool_size,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "backend": "postgresql",
+                "message": str(e),
+            }
+
     async def init_db(self):
-        """Initialize database schema."""
-        async with self._get_connection() as conn:
-            # Create tables
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS devices (
-                    id TEXT PRIMARY KEY,
-                    name TEXT,
-                    ip_address TEXT UNIQUE NOT NULL,
-                    community TEXT DEFAULT 'public',
-                    status TEXT DEFAULT 'unknown',
-                    sys_descr TEXT,
-                    discovery_method TEXT DEFAULT 'manual',
-                    last_polled TEXT,
-                    created TIMESTAMPTZ DEFAULT NOW(),
-                    updated TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            await conn.execute("""
-                ALTER TABLE devices ADD COLUMN IF NOT EXISTS discovery_method TEXT DEFAULT 'manual'
-            """)
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS network_id TEXT")
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_version TEXT DEFAULT '2c'")
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_username TEXT")
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_auth_protocol TEXT")
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_auth_key TEXT")
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_priv_protocol TEXT")
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmpv3_priv_key TEXT")
+        """No-op. Schema is owned by Alembic migrations.
 
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS topology_nodes (
-                    id TEXT PRIMARY KEY,
-                    device_id TEXT,
-                    label TEXT,
-                    node_type TEXT DEFAULT 'device',
-                    status TEXT DEFAULT 'unknown',
-                    created TIMESTAMPTZ DEFAULT NOW(),
-                    updated TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
+        See src/storage/migrations/versions/001_initial_schema.py for the
+        canonical baseline. The app lifespan calls `alembic upgrade head`
+        on startup (env-gated by NETOPS_AUTO_MIGRATE) before reaching
+        this point, so the schema is guaranteed to be current.
 
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS topology_links (
-                    id TEXT PRIMARY KEY,
-                    source_id TEXT NOT NULL,
-                    target_id TEXT NOT NULL,
-                    source_port TEXT,
-                    target_port TEXT,
-                    status TEXT DEFAULT 'active',
-                    created TIMESTAMPTZ DEFAULT NOW(),
-                    updated TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS poll_history (
-                    id SERIAL PRIMARY KEY,
-                    device_id TEXT,
-                    status TEXT,
-                    response_time_ms REAL,
-                    error TEXT,
-                    polled_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS alert_configs (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    alert_type TEXT NOT NULL,
-                    channel TEXT NOT NULL,
-                    config_json JSONB,
-                    integration_id TEXT,
-                    enabled INTEGER DEFAULT 1,
-                    created TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS integrations (
-                    id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    secrets_json JSONB,
-                    enabled INTEGER DEFAULT 1,
-                    created TIMESTAMPTZ DEFAULT NOW(),
-                    CONSTRAINT uq_integrations_type_name UNIQUE (type, name)
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS alert_history (
-                    id SERIAL PRIMARY KEY,
-                    alert_config_id TEXT,
-                    triggered_at TIMESTAMPTZ DEFAULT NOW(),
-                    resolved_at TIMESTAMPTZ,
-                    message TEXT,
-                    status TEXT DEFAULT 'triggered'
-                )
-            """)
-
-            # Service check tables
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS service_checks (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    check_type TEXT NOT NULL,
-                    target TEXT NOT NULL,
-                    interval_seconds INTEGER DEFAULT 60,
-                    timeout_seconds INTEGER DEFAULT 10,
-                    config_json JSONB,
-                    enabled INTEGER DEFAULT 1,
-                    created TIMESTAMPTZ DEFAULT NOW(),
-                    updated TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS check_results (
-                    id SERIAL PRIMARY KEY,
-                    check_id TEXT,
-                    status TEXT,
-                    response_time_ms REAL,
-                    message TEXT,
-                    details JSONB,
-                    error TEXT,
-                    checked_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            # Create indexes for performance
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip_address)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_device_id ON topology_nodes(device_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_status ON topology_nodes(status)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_links_source ON topology_links(source_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_links_target ON topology_links(target_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_poll_history_device ON poll_history(device_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_poll_history_polled_at ON poll_history(polled_at)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_configs_enabled ON alert_configs(enabled)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_configs_integration ON alert_configs(integration_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_history_config ON alert_history(alert_config_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_service_checks_type ON service_checks(check_type)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_service_checks_enabled ON service_checks(enabled)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_check_results_check_id ON check_results(check_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_check_results_checked_at ON check_results(checked_at)")
-
-            # Topology change history for auditing and trend analysis
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS topology_history (
-                    id SERIAL PRIMARY KEY,
-                    event_type TEXT NOT NULL,
-                    node_id TEXT,
-                    link_id TEXT,
-                    old_status TEXT,
-                    new_status TEXT,
-                    details JSONB,
-                    recorded_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_topology_history_event ON topology_history(event_type)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_topology_history_recorded_at ON topology_history(recorded_at)")
-
-            # Maintenance windows for suppressing alerts during planned downtime
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS maintenance_windows (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    start_time TIMESTAMPTZ NOT NULL,
-                    end_time TIMESTAMPTZ NOT NULL,
-                    description TEXT,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time)")
-
-            # Networks
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS networks (
-                    id TEXT PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    cidr TEXT,
-                    description TEXT,
-                    is_default INTEGER DEFAULT 0,
-                    created TIMESTAMPTZ DEFAULT NOW(),
-                    updated TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            await conn.execute("ALTER TABLE networks ADD COLUMN IF NOT EXISTS network_type TEXT")
-            await conn.execute("ALTER TABLE networks ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'")
-            await conn.execute("ALTER TABLE networks ADD COLUMN IF NOT EXISTS last_scanned TIMESTAMPTZ DEFAULT NULL")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_networks_name ON networks(name)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_networks_default ON networks(is_default)")
-
-            # Network associations on existing tables
-            await conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS network_id TEXT")
-            await conn.execute("ALTER TABLE topology_nodes ADD COLUMN IF NOT EXISTS network_id TEXT")
-            await conn.execute("ALTER TABLE topology_links ADD COLUMN IF NOT EXISTS network_id TEXT")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_devices_network ON devices(network_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_network ON topology_nodes(network_id)")
-            await conn.execute("CREATE INDEX IF NOT EXISTS idx_links_network ON topology_links(network_id)")
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY,
-                    username TEXT UNIQUE NOT NULL,
-                    email TEXT UNIQUE,
-                    name TEXT,
-                    password_hash TEXT NOT NULL,
-                    role TEXT DEFAULT 'admin',
-                    created TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS app_settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    updated TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            await conn.execute(
-                "INSERT INTO app_settings (key, value) VALUES ('config', '{}') ON CONFLICT (key) DO NOTHING"
-            )
+        Kept as a method so existing call sites (lifespan, tests) do not
+        need to change.
+        """
+        return None
 
     async def list_devices(
         self, limit: Optional[int] = None, offset: Optional[int] = None
@@ -1010,6 +994,12 @@ class AsyncPostgresClient:
             )
             return [dict(row) for row in rows]
 
+    async def clear_alert_history(self) -> int:
+        """Delete all rows from alert_history. Returns count deleted."""
+        async with self._get_connection() as conn:
+            result = await conn.execute("DELETE FROM alert_history")
+            return int(result.split()[-1]) if hasattr(result, 'split') else 0
+
     async def get_poll_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent poll history with device details."""
         async with self._get_connection() as conn:
@@ -1177,12 +1167,250 @@ class AsyncPostgresClient:
         return await self.get_network(network_id)
 
     async def cleanup_poll_history(self, retention_days: int = 30):
-        """Delete poll history older than retention_days."""
-        async with self._get_connection() as conn:
+        """Delete poll history older than retention_days.
+
+        On PG with the partitioned parent from migration 014, this
+        DETACHes + DROPs whole partitions whose upper bound is
+        older than the cutoff. On SQLite (or PG without 014
+        applied), this is a row-level DELETE.
+        """
+        if not self._pool:
+            return
+        async with self._pool.acquire() as conn:
+            # PG path: drop whole partitions.
+            try:
+                row = await conn.fetchrow(
+                    "SELECT relkind FROM pg_class WHERE relname = 'poll_history'"
+                )
+                if row and row["relkind"] == "p":
+                    from datetime import datetime, timedelta
+                    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+                    partitions = await conn.fetch(
+                        "SELECT inhrelid::regclass::text AS part_name, "
+                        "pg_get_expr(c.relpartbound, c.oid) AS bound "
+                        "FROM pg_inherits i "
+                        "JOIN pg_class c ON c.oid = i.inhrelid "
+                        "JOIN pg_class p ON p.oid = i.inhparent "
+                        "WHERE p.relname = 'poll_history'"
+                    )
+                    for p in partitions:
+                        bound = p["bound"] or ""
+                        if "DEFAULT" in bound.upper():
+                            continue
+                        import re
+                        m = re.search(r"TO\s*\('([^']+)'\)", bound, re.IGNORECASE)
+                        if not m:
+                            continue
+                        try:
+                            to_ts = datetime.fromisoformat(
+                                m.group(1).replace(" ", "T").split("+")[0]
+                            )
+                        except (TypeError, ValueError):
+                            continue
+                        if to_ts < cutoff:
+                            await conn.execute(
+                                f"ALTER TABLE poll_history "
+                                f"DETACH PARTITION {p['part_name']}"
+                            )
+                            await conn.execute(
+                                f"DROP TABLE {p['part_name']}"
+                            )
+                    return
+            except Exception:
+                pass
+
+            # Fallback: row-level DELETE.
             await conn.execute(
                 "DELETE FROM poll_history WHERE polled_at < NOW() - make_interval(days => $1)",
                 retention_days,
             )
+
+    # ------------------------------------------------------------------
+    # Phase 4: topology_history partitioning support.
+    # The partition machinery is created by migration 010; the
+    # methods below maintain it at runtime. They are gated by
+    # `NETOPS_PHASE4_PARTITIONED_HISTORY=1` so existing deployments
+    # can opt in once the schema is verified.
+    # ------------------------------------------------------------------
+    @property
+    def phase4_partitioning_enabled(self) -> bool:
+        """Whether Phase 4 partitioning maintenance is enabled."""
+        return os.environ.get("NETOPS_PHASE4_PARTITIONED_HISTORY", "0") == "1"
+
+    async def maintain_topology_partitions(self, months_ahead: int = 3) -> int:
+        """Ensure topology_history has partitions for the current
+        month plus `months_ahead` future months.
+
+        On PostgreSQL with the partitioned parent from migration 010,
+        this is a no-op if the partitions already exist (CREATE
+        TABLE IF NOT EXISTS); otherwise it creates them.
+
+        On non-PG backends (e.g. SQLite), this is a no-op.
+
+        Returns the number of partitions created (0 if everything
+        was already in place or the dialect is not PG).
+        """
+        if not self.phase4_partitioning_enabled:
+            return 0
+        if not self._pool:
+            return 0
+
+        return await self._maintain_partitions(
+            "topology_history", months_ahead
+        )
+
+    async def maintain_poll_history_partitions(self, months_ahead: int = 3) -> int:
+        """Ensure poll_history has partitions for the current
+        month plus `months_ahead` future months.
+
+        Mirror of `maintain_topology_partitions` for migration 014.
+        Same gate, same return value semantics.
+        """
+        if not self.phase4_partitioning_enabled:
+            return 0
+        if not self._pool:
+            return 0
+
+        return await self._maintain_partitions(
+            "poll_history", months_ahead
+        )
+
+    async def _maintain_partitions(
+        self, table: str, months_ahead: int
+    ) -> int:
+        """Shared implementation for partition maintenance.
+
+        Idempotent: skips a partition if it already exists.
+        """
+        from datetime import date
+
+        today = date.today()
+        created = 0
+        async with self._pool.acquire() as conn:
+            # Confirm the parent is partitioned.
+            row = await conn.fetchrow(
+                "SELECT relkind FROM pg_class WHERE relname = $1", table
+            )
+            if not row or row["relkind"] != "p":
+                return 0
+
+            for offset in range(0, months_ahead + 1):
+                year = today.year
+                month = today.month + offset
+                while month < 1:
+                    month += 12
+                    year -= 1
+                while month > 12:
+                    month -= 12
+                    year += 1
+                start = f"{year:04d}-{month:02d}-01"
+                if month == 12:
+                    next_year, next_month = year + 1, 1
+                else:
+                    next_year, next_month = year, month + 1
+                end = f"{next_year:04d}-{next_month:02d}-01"
+                partition = f"{table}_{year}_{month:02d}"
+
+                exists = await conn.fetchval(
+                    "SELECT EXISTS ("
+                    "  SELECT 1 FROM pg_inherits i"
+                    "  JOIN pg_class c ON c.oid = i.inhrelid"
+                    "  WHERE c.relname = $1"
+                    ")", partition,
+                )
+                if exists:
+                    continue
+                await conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {partition} "
+                    f"PARTITION OF {table} "
+                    f"FOR VALUES FROM ('{start}') TO ('{end}')"
+                )
+                created += 1
+        return created
+
+    async def cleanup_topology_history(self, retention_days: int = 90) -> int:
+        """Drop topology_history partitions older than retention_days.
+
+        On PostgreSQL with the partitioned parent: identifies
+        partitions whose upper bound is older than the cutoff and
+        DETACHES + DROPS them. Row-level DELETE is not used; whole
+        partitions are removed.
+
+        On non-PG backends: a row-level DELETE is used (the SQLite
+        table is not partitioned).
+
+        Returns the number of partitions dropped (PG) or rows
+        deleted (SQLite).
+        """
+        if not self._pool:
+            return 0
+        async with self._pool.acquire() as conn:
+            # PG path: drop whole partitions.
+            try:
+                # Detect partitioned parent.
+                row = await conn.fetchrow(
+                    "SELECT relkind FROM pg_class WHERE relname = 'topology_history'"
+                )
+                if row and row["relkind"] == "p":
+                    cutoff = (
+                        f"(CURRENT_DATE - INTERVAL '{int(retention_days)} days')"
+                    )
+                    partitions = await conn.fetch(
+                        "SELECT inhrelid::regclass::text AS part_name, "
+                        "pg_get_expr(c.relpartbound, c.oid) AS bound "
+                        "FROM pg_inherits i "
+                        "JOIN pg_class c ON c.oid = i.inhrelid "
+                        "JOIN pg_class p ON p.oid = i.inhparent "
+                        "WHERE p.relname = 'topology_history'"
+                    )
+                    dropped = 0
+                    for p in partitions:
+                        # Parse the bound to find the upper limit.
+                        # PG returns something like:
+                        #   FOR VALUES FROM ('2025-06-01 00:00:00+00') TO ('2025-07-01 00:00:00+00')
+                        # We just need the second timestamp; the
+                        # SQL parser will reject anything we miss.
+                        bound = p["bound"] or ""
+                        if "DEFAULT" in bound.upper():
+                            continue  # never drop the catch-all
+                        # Try to extract the TO timestamp.
+                        import re
+                        m = re.search(r"TO\s*\('([^']+)'\)", bound, re.IGNORECASE)
+                        if not m:
+                            continue
+                        try:
+                            from datetime import datetime
+                            to_ts = datetime.fromisoformat(
+                                m.group(1).replace(" ", "T").split("+")[0]
+                            )
+                        except (TypeError, ValueError):
+                            continue
+                        from datetime import datetime, timedelta
+                        if to_ts < datetime.utcnow() - timedelta(days=retention_days):
+                            await conn.execute(
+                                f"ALTER TABLE topology_history "
+                                f"DETACH PARTITION {p['part_name']}"
+                            )
+                            await conn.execute(
+                                f"DROP TABLE {p['part_name']}"
+                            )
+                            dropped += 1
+                    return dropped
+            except Exception:
+                pass
+
+            # SQLite / fallback path: row-level DELETE.
+            from datetime import datetime, timedelta
+            cutoff = (datetime.utcnow() - timedelta(days=retention_days)).isoformat()
+            result = await conn.execute(
+                "DELETE FROM topology_history WHERE recorded_at < $1", cutoff
+            )
+            # asyncpg returns a status string like "DELETE 42".
+            try:
+                return int(result.split()[-1])
+            except (ValueError, IndexError):
+                return 0
+
 
     async def create_user(self, username: str, password_hash: str, email: Optional[str] = None, name: Optional[str] = None) -> dict[str, Any]:
         async with self._get_connection() as conn:

@@ -15,13 +15,14 @@ STRONG_PW = "Sup3r$ecret!"
 
 @pytest_asyncio.fixture
 async def sqlite_db():
-    """Fresh SQLite DB for auth tests."""
+    """Fresh SQLite DB for auth tests, schema applied via Alembic migrations."""
     from src.storage.sqlite_client import AsyncSQLiteClient
+    from tests.conftest import _run_alembic_upgrade_head
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
+    _run_alembic_upgrade_head(tmp.name)
     db = AsyncSQLiteClient(db_path=tmp.name)
     await db.connect()
-    await db.init_db()
     yield db, tmp.name
     await db.close()
     try: os.unlink(tmp.name)
@@ -258,13 +259,14 @@ async def test_signup_recovers_from_sqlite_lock(monkeypatch):
     transient 'database is locked' errors raised by concurrent writers
     (e.g. the SNMP poller holding a write transaction)."""
     from src.storage.sqlite_client import AsyncSQLiteClient
+    from tests.conftest import _run_alembic_upgrade_head
     import tempfile, os, sqlite3, asyncio
 
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
+    _run_alembic_upgrade_head(tmp.name)
     db = AsyncSQLiteClient(db_path=tmp.name)
     await db.connect()
-    await db.init_db()
 
     real_exec = db._db.execute
     calls = {"n": 0}

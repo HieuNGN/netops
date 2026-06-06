@@ -1,160 +1,257 @@
 @import "tailwindcss";
+@config "../tailwind.config.js";
 
 @variant dark (&:where(.dark, .dark *));
 
 :root {
   /* Core palette */
   --background: 0 0% 100%;
-  --foreground: 0 0% 8.6%;
-  --card: 0 0% 95.7%;
-  --card-foreground: 0 0% 8.6%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 98%;
+  --card-foreground: 0 0% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 8.6%;
-  --primary: 0 0% 8.6%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 9%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 87.8%;
-  --secondary-foreground: 0 0% 8.6%;
-  --muted: 0 0% 95.7%;
-  --muted-foreground: 0 0% 32.2%;
+  --secondary: 0 0% 94%;
+  --secondary-foreground: 0 0% 10%;
+  --muted: 0 0% 97%;
+  --muted-foreground: 0 0% 40%;
   --accent: 357 78% 48%;
   --accent-foreground: 0 0% 100%;
   --destructive: 357 78% 48%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 87.8%;
-  --input: 0 0% 87.8%;
+  --border: 0 0% 88%;
+  --input: 0 0% 92%;
   --ring: 357 78% 48%;
   --radius: 0.125rem;
-  --success: 142 69% 45%;
+  --success: 142 69% 38%;
   --success-foreground: 0 0% 100%;
-  --warning: 45 93% 47%;
-  --warning-foreground: 0 0% 0%;
-  --info: 217 91% 60%;
+  --warning: 35 90% 45%;
+  --warning-foreground: 0 0% 100%;
+  --info: 217 85% 50%;
   --info-foreground: 0 0% 100%;
+
+  /* === IBM Carbon Design System — light === */
+  --ibm-blue: 217 100% 50%;
+  --ibm-blue-hover: 217 100% 42%;
+  --ibm-red: 357 72% 47%;
+  --ibm-red-hover: 357 72% 40%;
+  --ibm-green: 134 63% 37%;
+  --ibm-green-hover: 134 63% 30%;
+  --ibm-yellow: 46 87% 50%;
+  --ibm-yellow-hover: 46 87% 42%;
+  --ibm-purple: 268 100% 60%;
+  --ibm-purple-hover: 268 100% 52%;
+  --ibm-cyan: 204 89% 49%;
+  --ibm-cyan-hover: 204 89% 40%;
+  --ibm-magenta: 340 82% 60%;
+  --ibm-teal: 178 100% 30%;
+
+  /* === ThinkPad — light === */
+  --thinkpad-red: 358 77% 50%;
+  --thinkpad-red-hover: 358 77% 42%;
+  --thinkpad-black: 0 0% 15%;
+  --trackpoint-red: 355 70% 47%;
+
+  /* === Cisco — light === */
+  --cisco-blue: 195 96% 41%;
+  --cisco-blue-hover: 195 96% 33%;
+  --cisco-teal: 190 100% 46%;
+  --cisco-green: 132 42% 50%;
+  --cisco-orange: 23 100% 50%;
+
+  /* === Additional brand colors (for variety) === */
+  --hp-blue: 207 100% 33%;
+  --dell-blue: 210 100% 35%;
+  --juniper-green: 140 65% 38%;
+  --arista-blue: 213 89% 55%;
+  --fortinet-red: 0 78% 48%;
+  --paloalto-orange: 18 90% 52%;
+  --ubiquiti-blue: 200 100% 45%;
+  --mikrotik-red: 350 80% 48%;
 
   /* Button tokens — light */
   --btn-primary-bg: 0 0% 9%;
   --btn-primary-fg: 0 0% 100%;
-  --btn-primary-hover: 0 0% 32%;
-  --btn-accent-bg: 217 91% 60%;
+  --btn-primary-hover: 0 0% 20%;
+  --btn-accent-bg: 217 85% 50%;
   --btn-accent-fg: 0 0% 100%;
-  --btn-accent-hover: 217 91% 54%;
-  --btn-success-bg: 142 69% 45%;
+  --btn-accent-hover: 217 85% 42%;
+  --btn-success-bg: 142 69% 38%;
   --btn-success-fg: 0 0% 100%;
-  --btn-success-hover: 142 69% 38%;
+  --btn-success-hover: 142 69% 30%;
   --btn-destructive-bg: 357 78% 48%;
   --btn-destructive-fg: 0 0% 100%;
-  --btn-destructive-hover: 357 78% 42%;
-  --btn-ghost-hover: 0 0% 87.8%;
+  --btn-destructive-hover: 357 78% 40%;
+  --btn-ghost-hover: 0 0% 94%;
 
   /* Surface tokens — light */
-  --surface-hover: 0 0% 95.7%;
-  --surface-pressed: 0 0% 91%;
-  --surface-subtle: 0 0% 96.8%;
+  --surface-hover: 0 0% 95%;
+  --surface-pressed: 0 0% 90%;
+  --surface-subtle: 0 0% 98%;
 
-  /* Badge tokens — light (tinted backgrounds) */
-  --badge-success-bg: 142 69% 92%;
-  --badge-success-fg: 142 71% 36%;
+  /* Badge tokens — light (saturated, high-contrast) */
+  --badge-success-bg: 142 69% 90%;
+  --badge-success-fg: 142 71% 28%;
   --badge-destructive-bg: 357 78% 92%;
-  --badge-destructive-fg: 357 78% 40%;
-  --badge-warning-bg: 45 93% 92%;
-  --badge-warning-fg: 35 77% 38%;
-  --badge-info-bg: 217 91% 93%;
-  --badge-info-fg: 217 91% 46%;
+  --badge-destructive-fg: 357 78% 38%;
+  --badge-warning-bg: 40 95% 88%;
+  --badge-warning-fg: 30 90% 32%;
+  --badge-info-bg: 217 85% 92%;
+  --badge-info-fg: 217 85% 38%;
   --badge-neutral-bg: 0 0% 90%;
   --badge-neutral-fg: 0 0% 20%;
 
   /* Chart & canvas */
-  --grid-bg: #f5f5f5;
-  --grid-dot: #d0d0d0;
+  --grid-bg: #f4f4f4;
+  --grid-dot: #c8c8c8;
   --chart-tooltip-bg: 0 0% 100%;
-  --chart-tooltip-fg: 0 0% 8.6%;
-  --chart-tooltip-border: 0 0% 87.8%;
-  --chart-axis: 0 0% 45%;
-  --canvas-link-color: #a8a8a8;
-  --canvas-halo-bg: rgba(245, 245, 245, 0.85);
-  --canvas-halo-fg: 0 0% 8.6%;
+  --chart-tooltip-fg: 0 0% 10%;
+  --chart-tooltip-border: 0 0% 88%;
+  --chart-axis: 0 0% 40%;
+  --canvas-link-color: #6a6a6a;
+  --canvas-router: #e2231a;
+  --canvas-switch: #049fd9;
+  --canvas-firewall: #da1e28;
+  --canvas-default: #525252;
+  --canvas-online: #24a148;
+  --canvas-offline: #da1e28;
+  --canvas-halo-bg: rgba(255, 255, 255, 0.92);
+  --canvas-halo-fg: 0 0% 10%;
   --canvas-node-stroke: 0 0% 100%;
-  --canvas-shadow: rgba(0, 0, 0, 0.15);
+  --canvas-shadow: rgba(0, 0, 0, 0.2);
 }
 
 .dark {
-  /* Core palette — dark */
-  --background: 0 0% 0%;
-  --foreground: 0 0% 95.7%;
-  --card: 0 0% 8%;
-  --card-foreground: 0 0% 95.7%;
-  --popover: 0 0% 8%;
-  --popover-foreground: 0 0% 95.7%;
-  --primary: 0 0% 95.7%;
-  --primary-foreground: 0 0% 0%;
-  --secondary: 0 0% 18%;
-  --secondary-foreground: 0 0% 95.7%;
-  --muted: 0 0% 8%;
-  --muted-foreground: 0 0% 65.9%;
-  --accent: 357 100% 76%;
-  --accent-foreground: 0 0% 0%;
-  --destructive: 357 100% 76%;
-  --destructive-foreground: 0 0% 0%;
-  --border: 0 0% 18%;
-  --input: 0 0% 18%;
-  --ring: 357 100% 76%;
-  --success: 142 71% 58%;
+  /* Core palette — dark: blue-slate, clear layer separation */
+  --background: 220 18% 8%;
+  --foreground: 0 0% 96%;
+  --card: 220 16% 15%;
+  --card-foreground: 0 0% 96%;
+  --popover: 220 16% 18%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 0 0% 96%;
+  --primary-foreground: 220 18% 8%;
+  --secondary: 220 14% 24%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 220 14% 20%;
+  --muted-foreground: 220 10% 70%;
+  --accent: 357 90% 68%;
+  --accent-foreground: 220 18% 8%;
+  --destructive: 357 85% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 16% 28%;
+  --input: 220 14% 24%;
+  --ring: 357 90% 62%;
+  --success: 142 65% 50%;
   --success-foreground: 0 0% 100%;
-  --warning: 45 93% 65%;
-  --warning-foreground: 0 0% 0%;
-  --info: 217 91% 68%;
+  --warning: 40 90% 58%;
+  --warning-foreground: 220 18% 8%;
+  --info: 217 85% 65%;
   --info-foreground: 0 0% 100%;
 
-  /* Button tokens — dark */
-  --btn-primary-bg: 0 0% 95.7%;
-  --btn-primary-fg: 0 0% 0%;
-  --btn-primary-hover: 0 0% 85%;
-  --btn-accent-bg: 217 91% 68%;
+  /* === IBM Carbon — dark (brighter for contrast) === */
+  --ibm-blue: 217 100% 68%;
+  --ibm-blue-hover: 217 100% 76%;
+  --ibm-red: 357 95% 68%;
+  --ibm-red-hover: 357 95% 76%;
+  --ibm-green: 134 65% 58%;
+  --ibm-green-hover: 134 65% 66%;
+  --ibm-yellow: 46 95% 62%;
+  --ibm-yellow-hover: 46 95% 70%;
+  --ibm-purple: 268 100% 75%;
+  --ibm-purple-hover: 268 100% 82%;
+  --ibm-cyan: 204 100% 64%;
+  --ibm-cyan-hover: 204 100% 72%;
+  --ibm-magenta: 340 90% 72%;
+  --ibm-teal: 178 70% 50%;
+
+  /* === ThinkPad — dark === */
+  --thinkpad-red: 358 80% 62%;
+  --thinkpad-red-hover: 358 80% 70%;
+  --thinkpad-black: 0 0% 95%;
+  --trackpoint-red: 355 72% 58%;
+
+  /* === Cisco — dark === */
+  --cisco-blue: 195 95% 58%;
+  --cisco-blue-hover: 195 95% 66%;
+  --cisco-teal: 190 100% 58%;
+  --cisco-green: 132 50% 60%;
+  --cisco-orange: 23 100% 62%;
+
+  /* === Additional brand colors — dark === */
+  --hp-blue: 207 100% 58%;
+  --dell-blue: 210 100% 60%;
+  --juniper-green: 140 60% 50%;
+  --arista-blue: 213 95% 68%;
+  --fortinet-red: 0 85% 62%;
+  --paloalto-orange: 18 100% 62%;
+  --ubiquiti-blue: 200 100% 60%;
+  --mikrotik-red: 350 80% 60%;
+
+  /* Button tokens — dark: bold, saturated */
+  --btn-primary-bg: 0 0% 96%;
+  --btn-primary-fg: 220 14% 10%;
+  --btn-primary-hover: 0 0% 82%;
+  --btn-accent-bg: 217 85% 62%;
   --btn-accent-fg: 0 0% 100%;
-  --btn-accent-hover: 217 91% 75%;
-  --btn-success-bg: 142 71% 58%;
+  --btn-accent-hover: 217 85% 70%;
+  --btn-success-bg: 142 65% 50%;
   --btn-success-fg: 0 0% 100%;
-  --btn-success-hover: 142 71% 68%;
-  --btn-destructive-bg: 357 100% 76%;
-  --btn-destructive-fg: 0 0% 0%;
-  --btn-destructive-hover: 357 100% 82%;
-  --btn-ghost-hover: 0 0% 18%;
+  --btn-success-hover: 142 65% 58%;
+  --btn-destructive-bg: 357 85% 60%;
+  --btn-destructive-fg: 0 0% 100%;
+  --btn-destructive-hover: 357 85% 68%;
+  --btn-ghost-hover: 220 14% 22%;
 
-  /* Surface tokens — dark */
-  --surface-hover: 0 0% 14%;
-  --surface-pressed: 0 0% 20%;
-  --surface-subtle: 0 0% 6%;
+  /* Surface tokens — dark: clear hierarchy */
+  --surface-hover: 220 14% 22%;
+  --surface-pressed: 220 14% 28%;
+  --surface-subtle: 220 16% 11%;
 
-  /* Badge tokens — dark (more opaque for contrast) */
-  --badge-success-bg: 142 71% 20%;
-  --badge-success-fg: 142 71% 72%;
-  --badge-destructive-bg: 357 100% 20%;
-  --badge-destructive-fg: 357 100% 76%;
-  --badge-warning-bg: 45 93% 20%;
-  --badge-warning-fg: 45 93% 72%;
-  --badge-info-bg: 217 91% 20%;
-  --badge-info-fg: 217 91% 72%;
-  --badge-neutral-bg: 0 0% 18%;
-  --badge-neutral-fg: 0 0% 65.9%;
+  /* Badge tokens — dark: bold, saturated, high contrast */
+  --badge-success-bg: 142 65% 18%;
+  --badge-success-fg: 142 65% 68%;
+  --badge-destructive-bg: 357 85% 22%;
+  --badge-destructive-fg: 357 85% 72%;
+  --badge-warning-bg: 40 85% 22%;
+  --badge-warning-fg: 40 90% 70%;
+  --badge-info-bg: 217 85% 22%;
+  --badge-info-fg: 217 85% 70%;
+  --badge-neutral-bg: 220 14% 25%;
+  --badge-neutral-fg: 0 0% 80%;
 
   /* Chart & canvas — dark */
-  --grid-bg: #1a1a1a;
-  --grid-dot: #404040;
-  --chart-tooltip-bg: 0 0% 12%;
-  --chart-tooltip-fg: 0 0% 95.7%;
-  --chart-tooltip-border: 0 0% 24%;
-  --chart-axis: 0 0% 55%;
-  --canvas-link-color: #525252;
-  --canvas-halo-bg: rgba(26, 26, 26, 0.85);
-  --canvas-halo-fg: 0 0% 95.7%;
-  --canvas-node-stroke: 0 0% 8%;
-  --canvas-shadow: rgba(0, 0, 0, 0.4);
+  --grid-bg: #1e2230;
+  --grid-dot: #3a4050;
+  --chart-tooltip-bg: 220 14% 18%;
+  --chart-tooltip-fg: 0 0% 96%;
+  --chart-tooltip-border: 220 14% 28%;
+  --chart-axis: 220 10% 60%;
+  --canvas-link-color: #5a6070;
+  --canvas-router: #e85a5a;
+  --canvas-switch: #5cc4f0;
+  --canvas-firewall: #f06575;
+  --canvas-default: #8d8d8d;
+  --canvas-online: #42be65;
+  --canvas-offline: #f06575;
+  --canvas-halo-bg: rgba(30, 34, 48, 0.92);
+  --canvas-halo-fg: 0 0% 96%;
+  --canvas-node-stroke: 220 14% 14%;
+  --canvas-shadow: rgba(0, 0, 0, 0.5);
 }
 
 :root {
   font-family: "IBM Plex Sans", system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+  color-scheme: light dark;
+}
+
+html, body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
 body {
@@ -185,4 +282,30 @@ body {
 
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
+}
+
+@keyframes hint-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hint-popover-in {
+  animation: hint-popover-in 120ms ease-out;
+  transform-origin: top left;
+}
+
+@keyframes copy-pulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+.copy-pulse {
+  animation: copy-pulse 250ms ease-out;
 }

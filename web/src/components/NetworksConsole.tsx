@@ -73,8 +73,8 @@ export function NetworksConsole({ open, onClose }: Props) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-full w-[400px] bg-card border-l border-border z-50 flex flex-col shadow-lg">
+      <div className="fixed inset-0 bg-foreground/20 z-40" onClick={onClose} />
+      <div className="fixed top-0 right-0 h-full w-[400px] bg-card border-l border-border z-50 flex flex-col shadow-2xl">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div>
             <h2 className="text-base font-semibold text-foreground">Networks</h2>
@@ -96,7 +96,7 @@ export function NetworksConsole({ open, onClose }: Props) {
             <input type="text" placeholder="CIDR (optional)" value={newCidr} onChange={(e) => setNewCidr(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input dark:border-input bg-card text-foreground rounded-sm" />
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => { setShowCreate(false); setNewName(''); setNewCidr(''); }} className="text-xs px-2 py-1 text-muted-foreground">Cancel</button>
-              <button type="submit" className="text-xs px-3 py-1 bg-btn-destructive text-btn-destructive-foreground rounded-sm hover:bg-btn-destructive-hover">Create</button>
+              <button type="submit" className="text-xs px-3 py-1 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover">Create</button>
             </div>
           </form>
         )}
@@ -124,7 +124,7 @@ export function NetworksConsole({ open, onClose }: Props) {
                     className="text-sm font-medium text-foreground"
                   />
                   {n.is_default && (
-                    <span className="text-xs px-1.5 py-0.5 bg-btn-primary text-btn-primary-foreground dark:bg-primary dark:text-primary-foreground rounded-sm font-medium">default</span>
+                    <span className="text-xs px-1.5 py-0.5 bg-ibm-blue text-white dark:bg-ibm-blue dark:text-white rounded-sm font-medium">default</span>
                   )}
                 </div>
                 <button

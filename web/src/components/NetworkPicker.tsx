@@ -55,7 +55,7 @@ export function NetworkPicker() {
         </h3>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-1 text-xs px-2 py-1 bg-btn-primary text-btn-primary-foreground rounded-sm hover:bg-btn-primary-hover"
+          className="flex items-center gap-1 text-xs px-2 py-1 bg-ibm-blue text-white rounded-sm hover:bg-ibm-blue-hover"
         >
           <Plus className="h-3 w-3" />
           New Network
@@ -88,7 +88,7 @@ export function NetworkPicker() {
           />
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setShowForm(false)} className="text-xs px-2 py-1 text-muted-foreground">Cancel</button>
-            <button type="submit" className="text-xs px-3 py-1 bg-btn-destructive text-btn-destructive-foreground rounded-sm hover:bg-btn-destructive-hover">Create</button>
+            <button type="submit" className="text-xs px-3 py-1 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover">Create</button>
           </div>
         </form>
       )}
@@ -102,7 +102,7 @@ export function NetworkPicker() {
             key={n.id}
             className={`flex items-center justify-between px-3 py-2 rounded-sm border text-sm cursor-pointer transition-colors ${
                 n.is_default
-                  ? 'bg-btn-primary text-btn-primary-foreground dark:bg-primary dark:text-primary-foreground border-primary'
+                  ? 'bg-ibm-blue text-white dark:bg-ibm-blue dark:text-white border-ibm-blue'
                   : 'bg-card border-border hover:bg-muted dark:hover:bg-muted'
             }`}
             onClick={() => handleSetDefault(n.id)}
@@ -115,7 +115,7 @@ export function NetworkPicker() {
             {!n.is_default && (
               <button
                 onClick={(e) => { e.stopPropagation(); handleDelete(n.id, n.name); }}
-                className="text-destructive hover:text-red-900 opacity-60 hover:opacity-100"
+                className="text-destructive hover:text-destructive opacity-60 hover:opacity-100"
               >
                 <Trash2 className="h-3 w-3" />
               </button>

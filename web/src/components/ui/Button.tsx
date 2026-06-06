@@ -11,10 +11,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: 'bg-btn-primary text-btn-primary-foreground hover:bg-btn-primary-hover',
-  accent: 'bg-btn-accent text-btn-accent-foreground hover:bg-btn-accent-hover',
-  success: 'bg-btn-success text-btn-success-foreground hover:bg-btn-success-hover',
-  destructive: 'bg-btn-destructive text-btn-destructive-foreground hover:bg-btn-destructive-hover',
+  primary: 'bg-ibm-blue text-white hover:bg-ibm-blue-hover',
+  accent: 'bg-cisco-teal text-white hover:bg-cisco-teal/70',
+  success: 'bg-cisco-green text-white hover:bg-cisco-green-hover',
+  destructive: 'bg-thinkpad-red text-white hover:bg-thinkpad-red-hover',
   ghost: 'text-muted-foreground hover:bg-surface-hover',
   outline: 'border border-input text-foreground hover:bg-surface-hover',
 };

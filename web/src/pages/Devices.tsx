@@ -145,16 +145,16 @@ export function Devices() {
           <p className="text-muted-foreground mt-1">Manage network devices</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={handleResetRescan} disabled={busy || isRescanning} className="flex items-center space-x-2 px-4 py-2 bg-btn-destructive text-btn-destructive-foreground rounded-sm hover:bg-btn-destructive-hover disabled:opacity-50">
+          <button onClick={handleResetRescan} disabled={busy || isRescanning} className="flex items-center space-x-2 px-4 py-2 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover disabled:opacity-50">
             <RefreshCcw className="h-4 w-4" /><span>{busy || isRescanning ? 'Rescanning...' : 'Reset & Rescan'}</span>
           </button>
-          <button onClick={() => setShowImport(true)} className="flex items-center space-x-2 px-4 py-2 bg-btn-success text-btn-success-foreground rounded-sm hover:bg-btn-success-hover">
+          <button onClick={() => setShowImport(true)} className="flex items-center space-x-2 px-4 py-2 bg-ibm-green text-white rounded-sm hover:bg-ibm-green-hover">
             <Upload className="h-4 w-4" /><span>Import</span>
           </button>
-          <button onClick={() => setShowScanModal(true)} className="flex items-center space-x-2 px-4 py-2 bg-btn-accent text-btn-accent-foreground rounded-sm hover:bg-btn-accent-hover">
+          <button onClick={() => setShowScanModal(true)} className="flex items-center space-x-2 px-4 py-2 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover">
             <ScanLine className="h-4 w-4" /><span>Scan</span>
           </button>
-          <button onClick={() => setShowAddForm(true)} className="flex items-center space-x-2 px-4 py-2 bg-btn-primary text-btn-primary-foreground rounded-sm hover:bg-btn-primary-hover">
+          <button onClick={() => setShowAddForm(true)} className="flex items-center space-x-2 px-4 py-2 bg-ibm-purple text-white rounded-sm hover:bg-ibm-purple-hover">
             <Plus className="h-4 w-4" /><span>Add Device</span>
           </button>
         </div>
@@ -210,14 +210,14 @@ export function Devices() {
             )}
             <div className="flex justify-end space-x-2">
               <button type="button" onClick={() => setShowAddForm(false)} className="px-4 py-2 text-foreground bg-secondary hover:bg-surface-hover rounded-sm">Cancel</button>
-              <button type="submit" className="px-4 py-2 bg-btn-primary text-btn-primary-foreground rounded-sm hover:bg-btn-primary-hover">Add Device</button>
+              <button type="submit" className="px-4 py-2 bg-ibm-purple text-white rounded-sm hover:bg-ibm-purple-hover">Add Device</button>
             </div>
           </form>
         </div>
       )}
 
       {showImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20">
           <div className="bg-card rounded-sm shadow-lg border border-border p-6 w-full max-w-lg mx-4">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-foreground">Bulk Import Devices</h2>
@@ -225,9 +225,9 @@ export function Devices() {
             </div>
             <div className="space-y-4">
               <div className="flex space-x-2">
-                <button onClick={() => setImportType('json')} className={`px-3 py-1.5 text-sm rounded-sm ${importType === 'json' ? 'bg-btn-primary text-btn-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}>JSON</button>
-                <button onClick={() => setImportType('csv')} className={`px-3 py-1.5 text-sm rounded-sm ${importType === 'csv' ? 'bg-btn-primary text-btn-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}>CSV</button>
-                <button onClick={() => fileRef.current?.click()} className="px-3 py-1.5 text-sm rounded-sm bg-btn-accent text-btn-accent-foreground hover:bg-btn-accent-hover">Upload File</button>
+                <button onClick={() => setImportType('json')} className={`px-3 py-1.5 text-sm rounded-sm ${importType === 'json' ? 'bg-ibm-blue text-white' : 'bg-secondary text-secondary-foreground'}`}>JSON</button>
+                <button onClick={() => setImportType('csv')} className={`px-3 py-1.5 text-sm rounded-sm ${importType === 'csv' ? 'bg-ibm-blue text-white' : 'bg-secondary text-secondary-foreground'}`}>CSV</button>
+                <button onClick={() => fileRef.current?.click()} className="px-3 py-1.5 text-sm rounded-sm bg-ibm-cyan text-white hover:bg-ibm-cyan-hover">Upload File</button>
                 <input ref={fileRef} type="file" accept=".json,.csv" onChange={handleFileUpload} className="hidden" />
               </div>
               <textarea value={importData} onChange={e => setImportData(e.target.value)}
@@ -235,7 +235,7 @@ export function Devices() {
                 placeholder={importType === 'json' ? '[{"name":"Router-1","ip_address":"192.168.1.1","community":"public"}]' : 'name,ip_address,community,SNMP_version\nRouter-1,192.168.1.1,public,2c'} />
               <div className="flex justify-end space-x-2">
                 <button onClick={() => { setShowImport(false); setImportData(''); }} className="px-4 py-2 text-foreground bg-secondary hover:bg-surface-hover rounded-sm">Cancel</button>
-                <button onClick={handleImport} disabled={importing} className="px-4 py-2 bg-btn-success text-btn-success-foreground rounded-sm hover:bg-btn-success-hover disabled:opacity-50">{importing ? 'Importing...' : 'Import'}</button>
+                <button onClick={handleImport} disabled={importing} className="px-4 py-2 bg-ibm-green text-white rounded-sm hover:bg-ibm-green-hover disabled:opacity-50">{importing ? 'Importing...' : 'Import'}</button>
               </div>
             </div>
           </div>
@@ -243,7 +243,7 @@ export function Devices() {
       )}
 
       {showScanModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20">
           <div className="bg-card rounded-sm shadow-lg border border-border p-6 w-full max-w-md mx-4">
             <div className="flex justify-between items-center mb-4"><h2 className="text-lg font-semibold text-foreground">Scan Network</h2><button onClick={() => setShowScanModal(false)} className="text-muted-foreground"><X className="h-5 w-5" /></button></div>
             <form onSubmit={handleDiscover} className="space-y-4">
@@ -260,7 +260,7 @@ export function Devices() {
               </label>
               <div className="flex justify-end space-x-2">
                 <button type="button" onClick={() => setShowScanModal(false)} className="px-4 py-2 text-foreground bg-secondary hover:bg-surface-hover rounded-sm">Cancel</button>
-                <button type="submit" disabled={busy || isDiscovering || isRescanning} className="px-4 py-2 bg-btn-accent text-btn-accent-foreground rounded-sm hover:bg-btn-accent-hover disabled:opacity-50">
+                <button type="submit" disabled={busy || isDiscovering || isRescanning} className="px-4 py-2 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover disabled:opacity-50">
                   {busy || isRescanning ? 'Working...' : (scanConfig.replace ? 'Reset & Scan' : 'Start Scan')}
                 </button>
               </div>

@@ -4,11 +4,13 @@ Revision ID: 004
 Revises: 003
 Create Date: 2026-06-04
 
+The `users` table is now created in 001 baseline with the `email`
+and `name` columns already present, so this revision no longer needs
+to add them. Preserved to keep the migration chain linear and the
+revision IDs stable for any existing deployments that stamped this
+rev before the 001 baseline was consolidated.
 """
 from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -19,12 +21,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('users', sa.Column('email', sa.String(), nullable=True))
-    op.add_column('users', sa.Column('name', sa.String(), nullable=True))
-    op.create_index('ix_users_email', 'users', ['email'], unique=True)
+    # users table and email/name columns are in 001 baseline.
+    pass
 
 
 def downgrade() -> None:
-    op.drop_index('ix_users_email', table_name='users')
-    op.drop_column('users', 'name')
-    op.drop_column('users', 'email')
+    pass

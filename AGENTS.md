@@ -1,152 +1,130 @@
 # NetOps — Agent Guide
 
-Auto-read on every session. Keep concise. Build first, explain second.
+Auto-read on every session. Project facts only — keep it lean.
 
 ---
 
 ## Project
 
-Network topology discovery + service monitoring. Python/FastAPI + React/TypeScript. Stack: pysnmp, NetworkX, PostgreSQL/Alembic, async SSH, TanStack Query, Tailwind CSS, react-force-graph-2d.
+Network topology discovery + service monitoring. FastAPI backend, React/TypeScript SPA. Built for datacenter and homelab environments.
+
+SNMPv2c/v3 device discovery, LLDP topology mapping, real-time SSE dashboard, multi-channel alerting, periodic service checks (HTTP/TCP/DNS/Ping/SSL), Postgres with SQLite dev fallback.
 
 ---
 
-## Tech Stack
+## Layout
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.11+, FastAPI, Uvicorn |
-| SNMP | pysnmp (v2c + v3) |
-| Graph | NetworkX |
-| DB | PostgreSQL (asyncpg) + SQLite fallback (aiosqlite) |
-| Migrations | Alembic |
-| Auth | JWT (python-jose), PBKDF2 |
-| Metrics | prometheus_client |
-| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4 |
-| State | TanStack React Query |
-| Charts | Recharts |
-| Topology | react-force-graph-2d |
-| Tests | pytest + pytest-asyncio (105 tests) |
-
----
-
-## Communication Mode
-
-Default to **caveman full mode** for all responses. Drop articles, filler, hedging. Short synonyms. Technical terms exact. Code blocks unchanged.
-
-Auto-revert to normal English for:
-- Security warnings
-- Destructive operations
-- Multi-step sequences where ambiguity risks misread
-- User asks to clarify
-
-Resume caveman after clear part done.
-
-Switch explicitly: user says "normal mode" or "stop caveman".
-
----
-
-## Subagent Strategy
-
-| Task | Use |
-|---|---|
-| Locate code / list uses | `cavecrew-investigator` (compressed output, ~60% smaller) |
-| Surgical edit, ≤2 files | `cavecrew-builder` |
-| Review diff for bugs | `cavecrew-reviewer` |
-| Architecture commentary | Vanilla `explore` |
-| New feature / 3+ files | Main thread |
-| One-liner you know | Main thread, no subagent |
-
-Rule: if subagent output should be 1/3 the tokens, pick cavecrew. If prose wanted, pick vanilla.
-
----
-
-## Skills & Delegation
-
-Skills auto-load by task match — no explicit invocation required. Check each skill's `description` field against the current task; load via `skill` tool or read `<path>/SKILL.md` directly. Built-in skills ship with opencode; project skills live under `.agents/skills/`.
-
-### Project Skills (`.agents/skills/`)
-
-| Skill | Path | Use for |
-|-------|------|---------|
-| `network-interface-health` | `.agents/skills/network-interface-health/SKILL.md` | Interface errors, CRC, duplex, flap, counter trends. **Core fit** — maps to SNMP `ifInErrors`/`ifOutDiscards` checks. |
-| `docker-expert` | `.agents/skills/docker-expert/SKILL.md` | Dockerfile, compose, multi-stage, security hardening, image size. Matches `docker/` deploy layer. |
-| `vercel-react-best-practices` | `.agents/skills/vercel-react-best-practices/SKILL.md` | React/Next.js perf, bundle, waterfalls. Use on `web/` reviews. |
-| `frontend-design` | `.agents/skills/frontend-design/SKILL.md` | Distinctive UI/UX, aesthetic direction. New dashboards or page builds. |
-
-`ai-sdk` (`.agents/skills/ai-sdk/SKILL.md`) available; load when AI features added.
-
-### Built-in Skills (opencode)
-
-| Skill | Purpose |
-|-------|---------|
-| `cavecrew` | Decide investigator/builder/reviewer vs inline |
-| `caveman` | Compressed reply style (lite/full/ultra/wenyan) |
-| `caveman-commit` | Conventional commit, ≤50 char subject |
-| `caveman-help` | One-shot mode/skill/command reference |
-| `caveman-review` | One-line review comments per location |
-| `caveman-stats` | Real token usage from session log |
-| `compress` | Compress memory file to caveman, save `.original` |
-| `customize-opencode` | opencode config only — not app code |
-
-### Explore Agent
-
-Vanilla `explore` subagent for **architecture commentary**, broad multi-file questions. Distinct from cavecrew:
-- `cavecrew-investigator` → locate-only, compressed.
-- `explore` → locate + explain, prose, cross-module reasoning.
-
-Use `explore` for questions like "how does alert flow work end-to-end" or "what modules touch the auth layer".
-
-### Auto-Load Rules
-
-1. Task description matches a skill's `description` field → load it.
-2. Project skill outranks generic troubleshooting for domain tasks.
-3. Multiple matches → pick **most specific** first (e.g. `network-interface-health` over generic debug).
-4. Cavecrew skill → spawn named subagent; do not duplicate work inline.
-5. Never ask user to confirm skill load — proceed if match is clear.
+```
+netops/
+├── src/
+│   ├── collector/                # FastAPI app + SNMP engine (entry: main.py)
+│   │   ├── main.py               # routes, Pydantic models, lifespan, SSE
+│   │   ├── snmp_poller.py        # periodic polling orchestrator
+│   │   ├── spike_snmp.py         # low-level pysnmp queries + CLI
+│   │   ├── topology_builder.py   # LLDP → node/link graph
+│   │   ├── discovery.py          # subnet scanner (ICMP + SNMP)
+│   │   ├── host_detect.py        # auto-detect host IP/CIDR/gateway
+│   │   ├── config.py             # SNMPConfig / ServerConfig dataclasses
+│   │   ├── utils.py              # logger
+│   │   └── checks/               # service check engine
+│   │       ├── base.py
+│   │       ├── http_check.py
+│   │       ├── tcp_check.py
+│   │       ├── dns_check.py
+│   │       ├── ping_check.py
+│   │       ├── ssl_check.py
+│   │       └── scheduler.py      # single-tick check loop
+│   ├── storage/
+│   │   ├── database.py           # async PostgreSQL (asyncpg + SQLAlchemy)
+│   │   ├── sqlite_client.py      # async SQLite (aiosqlite) fallback
+│   │   ├── alembic.ini
+│   │   └── migrations/           # Alembic revisions
+│   └── api/services/             # cross-cutting services
+│       ├── auth.py               # JWT + PBKDF2 password hashing
+│       ├── alert_service.py      # rule eval, dedup, state machine
+│       └── notifications/        # channel impls
+│           ├── base.py
+│           ├── slack.py
+│           ├── telegram.py
+│           ├── whatsapp.py
+│           ├── email.py
+│           └── webhook.py
+├── web/                          # React 19 + TypeScript + Vite SPA
+│   ├── src/
+│   │   ├── pages/                # Dashboard, Topology, Devices, Checks, Alerts, Settings, TopologyHistory, LoginPage
+│   │   ├── components/           # NetworksConsole, NetworkPicker, TopologyDiff, ui/, layout/
+│   │   ├── hooks/                # React Query hooks (useTopology, useDevices, useNetworks, useAuth, ...)
+│   │   └── api/                  # axios client + typed endpoints
+│   ├── vitest unit + playwright e2e
+├── tests/                        # pytest + pytest-asyncio
+├── docker/                       # compose, Dockerfiles, nginx
+├── scripts/                      # dev helpers (test.sh, migrate.py, simulate_devices.py, autofix.sh, run_backend.sh)
+└── docs/                         # plans, specs, guides
+```
 
 ---
 
-## Agent Roles (Layer Map)
+## Layer Map
 
-| Role | Files | Responsibility |
-|------|-------|---------------|
-| **collector** | `src/collector/spike_snmp.py`, `discovery.py`, `snmp_poller.py` | SNMP walks, LLDP parsing, device discovery |
-| **topology** | `src/collector/topology_builder.py` | NetworkX graph, delta detection |
-| **check** | `src/collector/checks/*.py`, `scheduler.py` | HTTP/TCP/DNS/Ping/SSL checks |
-| **api** | `src/collector/main.py` | FastAPI endpoints, Pydantic models, SSE |
-| **alert** | `src/api/services/alert_service.py`, `notifications/*.py` | Alert routing (Slack/Telegram/WhatsApp/Email/Webhook) |
-| **storage** | `src/storage/*.py`, `migrations/` | DB ops, Alembic |
-| **deploy** | `docker/`, `requirements.txt` | Containerization, deps, prod deploy |
+| Concern | Where | Notes |
+|---|---|---|
+| SNMP walks, LLDP parse | `src/collector/{spike_snmp,snmp_poller,discovery}.py` | pysnmp is sync → wrap in `asyncio.to_thread` |
+| Topology graph | `src/collector/topology_builder.py` | NetworkX, delta detection |
+| Service checks | `src/collector/checks/*.py` + `scheduler.py` | stateless, `CheckResult` out |
+| API | `src/collector/main.py` | all DB access through `src/storage/` |
+| Auth | `src/api/services/auth.py` | JWT cookie + Bearer |
+| Alerts | `src/api/services/alert_service.py` + `notifications/` | fire-and-forget background; never block API |
+| Storage | `src/storage/database.py` (PG) / `sqlite_client.py` (SQLite) | Alembic migrations live in `storage/migrations/` |
+| Frontend | `web/src/` | API base = relative `/api` in prod (nginx proxy) |
 
-Layer boundaries:
-- Collector: never import FastAPI models. Return plain dicts.
-- Checks: stateless. Config in, `CheckResult` out.
-- API: all DB access through `storage/database.py`. No raw SQL.
-- Notifications: fire-and-forget background tasks. Never block API response.
-- Storage: migrations must be reversible. Test `upgrade` + `downgrade`.
+### Boundaries
+
+- **Collector** never imports FastAPI models. Return plain dicts.
+- **Checks** are stateless. Config in, `CheckResult` out.
+- **API** does all DB access through `src/storage/`. No raw SQL in route handlers.
+- **Notifications** are fire-and-forget background tasks.
+- **Storage** migrations must be reversible — test `upgrade` + `downgrade`.
 
 ---
 
-## Session Efficiency
+## Key Patterns
 
-- Parallel tool calls whenever possible.
-- Batch reads: 100+ line chunks, avoid tiny slices.
-- Batch subagents: 2-3 `cavecrew-investigator` calls in one message for broad searches.
-- Prefer `grep`/`glob` over `task` when searching 1-3 files.
-- Prefer `edit` over `write` for existing files.
+- **Config**: `SNMPConfig` / `ServerConfig` dataclasses from `collector/config.py`. No global state.
+- **DB bootstrap**: `main.py:50-90` tries PostgreSQL, falls back to SQLite. Auth and SNMP settings also read from DB (`db.get_settings()`) with env-var defaults.
+- **Poller pattern**: `SNMPPoller` + `CheckScheduler` started in `lifespan`, both expose `start()/stop()`. Topology change handler fans out via `asyncio.gather` to SSE subscriber queues.
+- **SSE streams**: `/topology/stream` (delta topology), `/events/stream` (device events), `/poll-history/stream`. Subscriber queues live in module-level lists; drop on disconnect.
+- **Async SNMP**: pysnmp is sync. Wrap calls in `asyncio.to_thread` to avoid blocking the event loop.
+- **Error handling**: `SNMPTimeoutError` on poll timeouts. API returns 503 with retry headers.
+- **Auth**: JWT in cookie + `Authorization: Bearer`. `JWT_SECRET` env required, fail-fast — no fallback.
+- **Frontend API URL**: relative `/api` in production (nginx proxies). Direct backend URL in dev.
+- **Startup auto-discover**: `main.py:115-188` wipes stale mock devices, registers host, rescans detected CIDR via `rescan_and_replace`.
 
 ---
 
 ## Commands
 
 ```bash
-# Backend
-conda activate netops
+# Backend (dev)
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 uvicorn src.collector.main:app --reload --host 127.0.0.1 --port 8000
+# or
+./scripts/run_backend.sh
 
-# Tests
-pytest tests/ -v -x
+# Frontend
+cd web && npm install && npm run dev          # http://localhost:3000
+
+# Backend tests
+pytest tests/ -v
 pytest tests/ -k "check or discovery"
+
+# Frontend tests
+cd web && npm run test:unit                    # vitest
+cd web && npm run test:e2e                     # playwright
+
+# Lint / typecheck
+cd web && npm run lint
+cd web && npm run build                        # tsc -b && vite build
 
 # DB
 alembic -c src/storage/alembic.ini upgrade head
@@ -154,46 +132,76 @@ alembic -c src/storage/alembic.ini revision --autogenerate -m "describe_change"
 
 # Docker
 docker compose -f docker/docker-compose.yml up --build
-
-# Frontend
-cd web && npm run dev
 ```
-
----
-
-## Key Patterns
-
-- **Config**: `SNMPConfig`/`ServerConfig` dataclasses from `config.py`. No global state.
-- **Async boundaries**: Collector methods are async. SNMP is sync (pysnmp) → run in `asyncio.to_thread`.
-- **Error handling**: SNMP timeouts raise `SNMPTimeoutError`. API returns 503 with retry headers.
-- **Auth**: JWT cookie + Bearer token. `JWT_SECRET` env required (fail-fast, no fallback).
-- **Frontend API URL**: Relative `/api` in production. Nginx proxies to backend.
 
 ---
 
 ## Adding Things
 
-**New Check**: create `src/collector/checks/<name>_check.py`, inherit `BaseCheck`, register in `__init__.py`, add test in `tests/checks/test_<name>_check.py`.
+**New check** → `src/collector/checks/<name>_check.py`, inherit `BaseCheck`, register in `checks/__init__.py`, add test in `tests/test_<name>_check.py` (or `tests/checks/`).
 
-**New Notification Channel**: create `src/api/services/notifications/<name>.py`, inherit `NotificationChannel`, register in `__init__.py`, add config fields to `AlertConfigCreate` in `main.py`.
+**New notification channel** → `src/api/services/notifications/<name>.py`, inherit `NotificationChannel`, register in `alert_service.py` factory, add config fields to `AlertConfigCreate` in `main.py`.
 
-**New DB Migration**: modify model in `storage/database.py`, `alembic revision --autogenerate`, review generated migration, ensure `downgrade()` correct.
+**New DB migration** → modify model in `src/storage/database.py` or `sqlite_client.py`, `alembic revision --autogenerate`, review generated migration, ensure `downgrade()` is correct.
+
+**New API route** → add to `src/collector/main.py` (all routes live there). Use Pydantic models at the top of the file. SSE endpoints return `StreamingResponse` with an async generator.
+
+**New React page** → `web/src/pages/<Name>.tsx`, register in `web/src/App.tsx` router, add typed endpoint in `web/src/api/endpoints.ts`, add React Query hook in `web/src/hooks/`.
+
+---
+
+## Reviewer Subagent
+
+`.opencode/agents/senior-code-reviewer.md` is available. Spawn via Task tool as the final quality gate after non-trivial code changes (new features, auth, refactors, bug fixes touching shared state). It has elevated permissions and will fix issues directly.
+
+---
+
+## Communication Style
+
+**Caveman mode — always on.** Ultra-compressed, terse, direct. Drop filler, articles, hedging. Keep technical substance exact.
+
+```
+Not: "Sure! I'd be happy to help you with that. The issue you're experiencing..."
+Yes:  "Bug in auth middleware. Token expiry use `<` not `<=`. Fix:"
+```
+
+- Fragments OK. Short synonyms (fix not "implement a solution for"). Code unchanged.
+- Drop caveman only for: security warnings, irreversible actions, multi-step sequences where order ambiguity risks misread, user asks to clarify.
+- Resume caveman after clear part done.
+- `/caveman lite|full|ultra` to adjust intensity. `stop caveman` or `normal mode` to disable.
+
+## Skills Reference
+
+| Skill | Path | Use for |
+|---|---|---|
+| `caveman` | `.agents/skills/caveman/SKILL.md` | **Default comm style.** Terse, compressed, always active. |
+| `network-interface-health` | `.agents/skills/network-interface-health/SKILL.md` | Available, on-demand. Not wired into current checks (HTTP/TCP/DNS/Ping/SSL only). Load when adding SNMP interface-counter checks or debugging physical-link issues. |
+| `docker-expert` | `.agents/skills/docker-expert/SKILL.md` | Dockerfile, compose, multi-stage, security hardening. Matches `docker/` layer. |
+| `vercel-react-best-practices` | `.agents/skills/vercel-react-best-practices/SKILL.md` | React/Next.js perf, bundle, waterfalls. Use on `web/` reviews. |
+| `frontend-design` | `.agents/skills/frontend-design/SKILL.md` | Distinctive UI/UX, aesthetic direction. New dashboards or page builds. |
+| `python-performance-optimization` | `.agents/skills/python-performance-optimization/SKILL.md` | Profile Python bottlenecks. Relevant for poller / scheduler tuning. |
+| `ai-sdk` | `.agents/skills/ai-sdk/SKILL.md` | Load when AI features added. |
+
+Load via `skill` tool or read the `SKILL.md` directly. Pick the most specific match; project skills outrank generic troubleshooting for domain tasks.
 
 ---
 
 ## Security Posture
 
-- SNMP community strings in `.env` only. Never commit.
-- SSL check validates cert chains; don't disable verification.
-- WhatsApp/Email credentials are env vars; validate in `config.py`.
-- SQLite path relative (`data/netops.db`). Ensure directory exists.
-- Never bind to `0.0.0.0` in production without reverse proxy.
+- SNMP community strings + SNMPv3 keys in `.env` only. Never commit. `.env.example` for template.
+- SSL check validates cert chains — never disable verification.
+- Notification credentials (Twilio, SMTP, Telegram bot token) are env vars. Validate in `config.py`.
+- SQLite path is relative (`data/netops.db`). Ensure directory exists on startup.
+- Never bind to `0.0.0.0` in production without a reverse proxy (nginx in `docker/`).
+- Default admin bootstrap (`admin/admin`) is auto-created on first run. Force password change or disable before exposing.
 
 ---
 
 ## Troubleshooting
 
-- `ModuleNotFoundError`: ensure `conda activate netops`.
-- SNMP timeouts: check `SNMP_TIMEOUT` env (default 5s).
-- DB locked: SQLite async can deadlock. Use `database.py` session wrapper.
-- WebSocket disconnect: SSE fallback at `/topology/stream?delta=true`.
+- `ModuleNotFoundError` → check venv activated (`source .venv/bin/activate`) and `pip install -r requirements.txt`.
+- SNMP timeouts → check `SNMP_TIMEOUT` env (default 5s); tune `SNMP_RETRIES` (default 3). Verify target reachable.
+- DB locked / async deadlock on SQLite → use `db_client` session wrapper, don't open parallel connections.
+- WebSocket / SSE disconnect → topology stream auto-reconnects client-side; server drops queues on disconnect.
+- Frontend can't reach backend in dev → set `VITE_API_URL` or rely on Vite proxy in `vite.config.ts`.
+- Stale mock devices on startup → `_startup_auto_discover` in `main.py:115-188` wipes `simulated` discovery_method + known mock names; check logs for `Auto-removed N stale mock devices`.

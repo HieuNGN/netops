@@ -1,6 +1,7 @@
 """API endpoint tests for alert config dedup, update, delete, and integrations."""
 
 import os
+import tempfile
 import uuid
 
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only-32chars")
@@ -13,11 +14,19 @@ from asgi_lifespan import LifespanManager
 
 @pytest_asyncio.fixture(scope="function")
 async def client():
+    # Isolated SQLite per test — stops data from leaking into ./data/netops.db
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    os.environ["NETOPS_SQLITE_PATH"] = tmp.name
+
     from src.collector.main import app
 
-    async with LifespanManager(app) as manager:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            yield ac
+    try:
+        async with LifespanManager(app) as manager:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                yield ac
+    finally:
+        os.unlink(tmp.name)
 
 
 def _uniq_name(prefix: str) -> str:
@@ -34,7 +43,7 @@ class TestAlertEndpointsExtended:
             "name": name,
             "alert_type": "device_down",
             "channel": "webhook",
-            "config": {"url": "https://example.com/hook-a"},
+            "config": {"url": f"https://example.com/{uuid.uuid4().hex}"},
         })
         assert create.status_code == 200
         alert_id = create.json()["id"]

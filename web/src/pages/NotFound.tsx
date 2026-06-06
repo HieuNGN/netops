@@ -15,7 +15,7 @@ export function NotFound() {
         <div className="mt-8 flex items-center justify-center space-x-4">
           <Link
             to="/"
-            className="flex items-center space-x-2 px-4 py-2 bg-btn-primary text-btn-primary-foreground rounded-sm hover:bg-btn-primary-hover transition-colors"
+            className="flex items-center space-x-2 px-4 py-2 bg-ibm-blue text-white rounded-sm hover:bg-ibm-blue-hover transition-colors"
           >
             <Home className="h-4 w-4" />
             <span>Go Home</span>

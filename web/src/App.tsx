@@ -39,7 +39,7 @@ function ProtectedApp() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       {!isAuthRoute && <Header />}
       {!isAuthRoute && <PostSignupBanner />}
       <Suspense fallback={

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
@@ -54,22 +55,57 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting NetOps API server...")
 
-    # Initialize database client (PostgreSQL with SQLite fallback)
-    try:
+    # Auto-migrate: run Alembic upgrade head on startup (env-gated).
+    # Default: enabled (1). Set NETOPS_AUTO_MIGRATE=0 to disable for
+    # stricter change-control in production.
+    auto_migrate = os.environ.get("NETOPS_AUTO_MIGRATE", "1") != "0"
+    if auto_migrate:
+        try:
+            from scripts.migrate import upgrade as alembic_upgrade
+            await asyncio.to_thread(alembic_upgrade, "head")
+            logger.info("Alembic migrations applied (head)")
+        except Exception as e:
+            logger.error(f"Auto-migration failed: {e}")
+            # In dev, continue with whatever schema init_db() provides.
+            # In prod, this is fatal — surface it loudly.
+            if os.environ.get("NETOPS_REQUIRE_MIGRATIONS", "0") == "1":
+                raise
+
+    # Initialize database client.
+    #
+    # Priority (Phase 3 contract):
+    #   1. `DATABASE_URL` env var -> PostgreSQL only, fail-fast on
+    #      connection error (silent fallback is dangerous in prod).
+    #   2. No DATABASE_URL -> try PG with POSTGRES_* defaults, then
+    #      fall back to SQLite (with a warning log).
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
         from src.storage.database import AsyncPostgresClient
-
-        db_client = AsyncPostgresClient()
-        await db_client.connect()
-        await db_client.init_db()
-        logger.info("PostgreSQL database initialized")
-    except Exception as e:
-        logger.warning(f"PostgreSQL not available ({e}), falling back to SQLite")
-        from src.storage.sqlite_client import AsyncSQLiteClient
-
-        db_client = AsyncSQLiteClient()
-        await db_client.connect()
-        await db_client.init_db()
-        logger.info("SQLite database initialized at ./data/netops.db")
+        try:
+            db_client = AsyncPostgresClient(connection_string=database_url)
+            await db_client.connect()
+            await db_client.init_db()
+            logger.info("PostgreSQL connected via DATABASE_URL")
+        except Exception as e:
+            logger.error(f"DATABASE_URL set but PostgreSQL unavailable: {e}")
+            raise RuntimeError(
+                f"DATABASE_URL is set but PostgreSQL is unreachable: {e}"
+            )
+    else:
+        try:
+            from src.storage.database import AsyncPostgresClient
+            db_client = AsyncPostgresClient()
+            await db_client.connect()
+            await db_client.init_db()
+            logger.info("PostgreSQL connected with defaults")
+        except Exception as e:
+            logger.warning(f"PostgreSQL not available ({e}), falling back to SQLite")
+            from src.storage.sqlite_client import AsyncSQLiteClient
+            sqlite_path = os.environ.get("NETOPS_SQLITE_PATH", "./data/netops.db")
+            db_client = AsyncSQLiteClient(db_path=sqlite_path)
+            await db_client.connect()
+            await db_client.init_db()
+            logger.info(f"SQLite database initialized at {sqlite_path}")
 
     # Initialize alert service
     from src.api.services.alert_service import AlertService
@@ -85,6 +121,28 @@ async def lifespan(app: FastAPI):
             logger.info("Default admin user created (admin / admin)")
     except Exception as e:
         logger.warning(f"Failed to bootstrap admin user: {e}")
+
+    # Phase 4: ensure topology_history and poll_history have the
+    # partitions the application expects. Gated by
+    # NETOPS_PHASE4_PARTITIONED_HISTORY=1 so existing deployments
+    # opt in explicitly. Best-effort: a failure here is logged but
+    # does not stop the app.
+    try:
+        if getattr(db_client, "phase4_partitioning_enabled", False):
+            if hasattr(db_client, "maintain_topology_partitions"):
+                created = await db_client.maintain_topology_partitions()
+                if created > 0:
+                    logger.info(
+                        f"Created {created} topology_history partitions ahead"
+                    )
+            if hasattr(db_client, "maintain_poll_history_partitions"):
+                created = await db_client.maintain_poll_history_partitions()
+                if created > 0:
+                    logger.info(
+                        f"Created {created} poll_history partitions ahead"
+                    )
+    except Exception as e:
+        logger.warning(f"Failed to maintain partitions: {e}")
 
     # Read config from DB, fall back to defaults
     config = {}
@@ -342,6 +400,34 @@ async def health_check():
     if alert_service:
         result["alert_service"] = {"initialized": True}
     return result
+
+
+# Database health endpoint (Phase 3 spec). Returns the active
+# backend's connection pool stats and a probe-query latency.
+@app.get("/api/health/db")
+async def db_health_check():
+    """Database health: backend, latency, pool stats.
+
+    Returns 200 with `status: connected` on success, 503 on
+    disconnected, 500 on error. Operators use this to wire up
+    monitoring alerts.
+    """
+    if not db_client:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "disconnected", "message": "Database not initialized"},
+        )
+    if hasattr(db_client, "healthcheck"):
+        info = await db_client.healthcheck()
+    else:
+        # Fallback: client has no healthcheck method (custom subclass).
+        return {"status": "unknown", "backend": type(db_client).__name__}
+    status = info.get("status", "unknown")
+    if status == "error":
+        return JSONResponse(status_code=500, content=info)
+    if status == "disconnected":
+        return JSONResponse(status_code=503, content=info)
+    return info
 
 
 class LoginRequest(BaseModel):

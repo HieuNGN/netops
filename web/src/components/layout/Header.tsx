@@ -28,7 +28,7 @@ export function Header() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <Link to="/" className="flex items-center space-x-2">
-              <Network className="h-8 w-8 text-destructive" />
+              <Network className="h-8 w-8 text-thinkpad-red" />
               <span className="text-xl font-bold text-foreground">NetOps</span>
             </Link>
           </div>
@@ -42,7 +42,7 @@ export function Header() {
                   to={item.path}
                   className={`flex items-center space-x-2 px-3 py-2 rounded-sm text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'bg-ibm-blue text-white'
                       : 'text-muted-foreground hover:bg-surface-hover'
                   }`}
                 >
@@ -76,7 +76,7 @@ export function Header() {
                     w-5 h-5 rounded-full
                     transition-all duration-200 ease-out
                     ${isDark
-                      ? 'bg-destructive shadow-[0_1px_3px_var(--canvas-shadow)]'
+                      ? 'bg-thinkpad-red shadow-[0_1px_3px_var(--canvas-shadow)]'
                       : 'bg-surface-pressed shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]'
                     }
                     group-hover:scale-110 group-active:scale-95

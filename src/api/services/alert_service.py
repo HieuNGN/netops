@@ -20,6 +20,45 @@ class AlertService:
         self._link_status_cache: dict[str, str] = {}  # link_id -> status
         # Active alerts keyed by (alert_type, target_id) to prevent duplicates
         self._active_alerts: dict[str, dict[str, Any]] = {}
+        self._history_purged: bool = False
+
+    async def has_working_channel(self) -> bool:
+        """Return True if at least one enabled alert config has valid credentials.
+
+        Checks inline config_json and integration secrets_json. No side effects.
+        """
+        try:
+            configs = await self.db_client.list_alert_configs()
+        except Exception:
+            return False
+        for cfg in configs:
+            if not cfg.get("enabled", True):
+                continue
+            channel = await self.get_notification_channel(
+                cfg.get("channel", "webhook"),
+                cfg.get("config_json") or {},
+                integration_id=cfg.get("integration_id"),
+            )
+            if channel:
+                ok, _ = channel.validate_config()
+                if ok:
+                    return True
+        return False
+
+    async def _maybe_purge_history(self) -> None:
+        """Clear alert_history once when no working channel exists.
+
+        Reset gate when a working channel is restored.
+        """
+        if await self.has_working_channel():
+            self._history_purged = False
+            return
+        if not self._history_purged:
+            try:
+                await self.db_client.clear_alert_history()
+            except Exception:
+                pass  # Don't fail dispatch on cleanup errors
+            self._history_purged = True
 
     async def get_notification_channel(
         self, channel_type: str, config: dict[str, Any],
@@ -135,10 +174,10 @@ class AlertService:
         return alerts
 
     async def dispatch_alerts(self, alerts: list[dict[str, Any]]) -> dict[str, int]:
-        """
-        Dispatch alerts to configured notification channels.
+        """Dispatch alerts to configured notification channels.
 
-        Returns dispatch statistics.
+        Returns dispatch statistics. Silently skips external send when no
+        working channel exists; purges stale alert_history in that case.
         """
         stats = {"sent": 0, "failed": 0, "skipped": 0}
 
@@ -149,6 +188,12 @@ class AlertService:
                 return stats
         except Exception:
             pass  # Don't fail if maintenance window check errors
+
+        # Purge history once when no working channel; skip external send
+        await self._maybe_purge_history()
+        if not await self.has_working_channel():
+            stats["skipped"] = len(alerts)
+            return stats
 
         # Get enabled alert configurations
         alert_configs = await self.db_client.list_alert_configs()

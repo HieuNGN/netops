@@ -78,7 +78,7 @@ export function TopologyHistory() {
         <div className="flex items-center space-x-2">
           <button
             onClick={handleRefresh}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary text-primary-foreground rounded-sm hover:bg-primary/90"
+            className="flex items-center space-x-2 px-4 py-2 bg-cisco-teal text-white rounded-sm hover:bg-cisco-teal/70"
           >
             <RefreshCw className="h-4 w-4" />
             <span>Refresh</span>
@@ -144,7 +144,7 @@ export function TopologyHistory() {
 
       {/* Diff Modal */}
       {diffEvent && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-foreground/20 flex items-center justify-center p-4">
           <div className="bg-card rounded-sm shadow-lg border border-border w-full max-w-5xl h-[80vh] flex flex-col">
             <div className="px-4 py-3 border-b border-border flex justify-between items-center">
               <h3 className="font-semibold text-foreground">Topology Diff — {formatDate(diffEvent.event.recorded_at)}</h3>

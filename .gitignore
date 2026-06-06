@@ -66,3 +66,6 @@ playwright/.cache/
 
 # Temporary
 /tmp/
+.opencode/agents/
+.playwright-mcp/
+.opencode/

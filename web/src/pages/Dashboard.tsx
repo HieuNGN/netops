@@ -80,28 +80,28 @@ export function Dashboard() {
           value={devices.length}
           subtext={`${deviceStats.online} online, ${deviceStats.offline} offline`}
           icon={Server}
-          colorClass="bg-btn-accent text-btn-accent-foreground"
+          colorClass="bg-cisco-blue text-white"
         />
         <StatCard
           title="Network Nodes"
           value={topology.nodes.length}
           subtext={`${topology.links.length} active links`}
           icon={Network}
-          colorClass="bg-btn-primary text-btn-primary-foreground"
+          colorClass="bg-ibm-purple text-white"
         />
         <StatCard
           title="Service Checks"
           value={checks.length}
           subtext="Active monitoring"
           icon={Activity}
-          colorClass="bg-btn-success text-btn-success-foreground"
+          colorClass="bg-cisco-green text-white"
         />
         <StatCard
           title="System Status"
           value={deviceStats.offline > 0 ? 'Issues' : 'Healthy'}
           subtext={deviceStats.offline > 0 ? `${deviceStats.offline} devices offline` : 'All systems operational'}
           icon={deviceStats.offline > 0 ? AlertCircle : CheckCircle}
-          colorClass={deviceStats.offline > 0 ? 'bg-btn-destructive text-btn-destructive-foreground' : 'bg-btn-success text-btn-success-foreground'}
+          colorClass={deviceStats.offline > 0 ? 'bg-thinkpad-red text-white' : 'bg-cisco-green text-white'}
         />
       </div>
 
@@ -112,7 +112,7 @@ export function Dashboard() {
             <h2 className="text-lg font-semibold text-foreground flex items-center space-x-2">
               <Bell className="h-5 w-5 text-destructive" />
               <span>Active Alerts</span>
-              <span className="px-2 py-0.5 bg-btn-destructive text-btn-destructive-foreground text-xs rounded-sm font-medium">
+              <span className="px-2 py-0.5 bg-thinkpad-red text-white text-xs rounded-sm font-medium">
                 {activeAlerts.length}
               </span>
             </h2>
@@ -120,14 +120,14 @@ export function Dashboard() {
           </div>
           <div className="space-y-2">
             {activeAlerts.map((alert) => (
-              <div key={alert.key} className={`flex items-center justify-between p-3 rounded-sm border ${alert.status === 'firing' ? 'bg-red-50 dark:bg-destructive/20 border-red-500 dark:border-destructive' : 'bg-yellow-100 dark:bg-warning/20 border-yellow-500 dark:border-warning'}`}>
+              <div key={alert.key} className={`flex items-center justify-between p-3 rounded-sm border-l-4 ${alert.status === 'firing' ? 'bg-badge-destructive-bg border-l-ibm-red border-ibm-red/30' : 'bg-badge-warning-bg border-l-ibm-yellow border-ibm-yellow/30'}`}>
                 <div className="flex items-start space-x-3">
                   <div className="mt-0.5">
                     <span className={`inline-flex px-2 py-0.5 text-xs rounded-sm font-medium ${
                     alert.severity === 'critical'
-                      ? 'bg-btn-destructive text-btn-destructive-foreground dark:bg-red-600'
+                      ? 'bg-thinkpad-red text-white'
                       : alert.severity === 'warning'
-                      ? 'bg-warning text-foreground dark:bg-yellow-500'
+                      ? 'bg-ibm-yellow text-black'
                       : 'bg-secondary text-foreground dark:bg-muted dark:text-muted-foreground'
                   }`}>{alert.severity}</span>
                   </div>
@@ -142,9 +142,9 @@ export function Dashboard() {
                 </div>
                 <div className="flex items-center space-x-1">
                   {alert.status === 'firing' && (
-                    <button onClick={() => acknowledge(alert.key)} className="p-1.5 text-muted-foreground hover:bg-surface-hover rounded-sm" title="Acknowledge"><Check className="h-4 w-4" /></button>
+                    <button onClick={() => acknowledge(alert.key)} className="p-1.5 text-ibm-cyan hover:bg-surface-hover rounded-sm" title="Acknowledge"><Check className="h-4 w-4" /></button>
                   )}
-                  <button onClick={() => resolve(alert.key)} className="p-1.5 text-destructive hover:bg-badge-destructive-bg rounded-sm" title="Resolve"><X className="h-4 w-4" /></button>
+                  <button onClick={() => resolve(alert.key)} className="p-1.5 text-cisco-green hover:bg-badge-success-bg rounded-sm" title="Resolve"><X className="h-4 w-4" /></button>
                 </div>
               </div>
             ))}
@@ -158,7 +158,7 @@ export function Dashboard() {
         <div className="mt-3 pt-3 border-t border-border">
           <button
             onClick={() => setDrawerOpen(true)}
-            className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-btn-accent text-btn-accent-foreground rounded-sm hover:bg-btn-accent-hover"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-ibm-blue text-white rounded-sm hover:bg-ibm-blue-hover"
           >
             <Settings className="h-3.5 w-3.5" />
             Manage Networks
@@ -269,7 +269,7 @@ export function Dashboard() {
                   {deviceStatusData.map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill={entry.status === 'online' ? '#22c55e' : entry.status === 'offline' ? '#ef4444' : '#6b7280'}
+                      fill={entry.status === 'online' ? 'hsl(var(--cisco-green))' : entry.status === 'offline' ? 'hsl(var(--thinkpad-red))' : 'hsl(var(--cisco-blue))'}
                     />
                   ))}
                 </Pie>
@@ -302,8 +302,8 @@ export function Dashboard() {
                 }}
               />
               <Legend />
-              <Line type="monotone" dataKey="success" stroke="hsl(var(--success))" strokeWidth={2} name="Success" />
-              <Line type="monotone" dataKey="failed" stroke="hsl(var(--destructive))" strokeWidth={2} name="Failed" />
+              <Line type="monotone" dataKey="success" stroke="hsl(var(--cisco-green))" strokeWidth={2} name="Success" />
+              <Line type="monotone" dataKey="failed" stroke="hsl(var(--thinkpad-red))" strokeWidth={2} name="Failed" />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -347,7 +347,7 @@ export function Dashboard() {
                       color: 'hsl(var(--chart-tooltip-fg))',
                     }}
                   />
-                  <Bar dataKey="uptime" fill="hsl(var(--success))" name="Uptime %" />
+                  <Bar dataKey="uptime" fill="hsl(var(--ibm-cyan))" name="Uptime %" />
                 </BarChart>
               </ResponsiveContainer>
             );
@@ -359,7 +359,7 @@ export function Dashboard() {
       <div className="bg-card rounded-sm shadow-sm border border-border p-6 mt-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-foreground flex items-center space-x-2">
-            <History className="h-5 w-5 text-info" />
+            <History className="h-5 w-5 text-cisco-teal" />
             <span>Recent Topology Changes</span>
           </h2>
           <Link
@@ -425,7 +425,7 @@ export function Dashboard() {
               <p className="text-sm text-muted-foreground mt-1">Online Nodes</p>
             </div>
             <div className="text-center p-4 bg-surface-subtle rounded-sm">
-              <p className="text-2xl font-bold text-info">
+              <p className="text-2xl font-bold text-ibm-cyan dark:text-ibm-cyan">
                 {topology.links.filter((l) => l.status === 'active').length}
               </p>
               <p className="text-sm text-muted-foreground mt-1">Active Connections</p>

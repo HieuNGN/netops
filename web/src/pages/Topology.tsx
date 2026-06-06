@@ -8,26 +8,50 @@ function toColor(val: string): string {
   return /^\d/.test(val) ? `hsl(${val})` : val;
 }
 
-function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number) {
-  const root = window.document.documentElement;
-  const cs = getComputedStyle(root);
-  const haloBg = toColor(cs.getPropertyValue('--canvas-halo-bg').trim());
-  const haloFg = toColor(cs.getPropertyValue('--canvas-halo-fg').trim());
-  const nodeStroke = toColor(cs.getPropertyValue('--canvas-node-stroke').trim());
-  const canvasShadow = toColor(cs.getPropertyValue('--canvas-shadow').trim());
+/* Cache canvas colors to avoid getComputedStyle in the 60fps render loop.
+   Re-read only when the dark/light theme class on <html> changes. */
+const COLORS: Record<string, string> = {};
+function readCanvasColors() {
+  const cs = getComputedStyle(window.document.documentElement);
+  const read = (name: string) => toColor(cs.getPropertyValue(name).trim());
+  COLORS['haloBg']      = read('--canvas-halo-bg');
+  COLORS['haloFg']      = read('--canvas-halo-fg');
+  COLORS['nodeStroke']  = read('--canvas-node-stroke');
+  COLORS['canvasShadow']= read('--canvas-shadow');
+  COLORS['router']      = read('--canvas-router');
+  COLORS['switch']      = read('--canvas-switch');
+  COLORS['firewall']    = read('--canvas-firewall');
+  COLORS['default']     = read('--canvas-default');
+  COLORS['online']      = read('--canvas-online');
+  COLORS['offline']     = read('--canvas-offline');
+  COLORS['link']        = read('--canvas-link-color');
+}
+readCanvasColors();
 
+const observer = new MutationObserver((mutations) => {
+  for (const m of mutations) {
+    if (m.type === 'attributes' && m.attributeName === 'class') {
+      readCanvasColors();
+      return;
+    }
+  }
+});
+observer.observe(window.document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
+function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number) {
   const label = node.label || node.id;
   const fontSize = Math.max(10, 12 / globalScale);
   const nodeRadius = 7;
 
-  const baseColor = node.node_type === 'router' ? '#da1e28'
-    : node.node_type === 'firewall' ? '#f1c21b'
-    : node.node_type === 'switch' ? '#0f62fe'
-    : '#525252';
-  const color = node.status === 'offline' ? '#8d8d8d' : baseColor;
+  const baseColor = node.node_type === 'router' ? COLORS['router']
+    : node.node_type === 'firewall' ? COLORS['firewall']
+    : node.node_type === 'switch' ? COLORS['switch']
+    : COLORS['default'];
+  /* Offline nodes must remain visible: use offline red instead of blending into gray canvas */
+  const color = node.status === 'offline' ? COLORS['offline'] : baseColor;
 
   ctx.save();
-  ctx.shadowColor = canvasShadow;
+  ctx.shadowColor = COLORS['canvasShadow'];
   ctx.shadowBlur = 4 / globalScale;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2 / globalScale;
@@ -38,7 +62,7 @@ function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number)
   ctx.fill();
   ctx.restore();
 
-  ctx.strokeStyle = nodeStroke;
+  ctx.strokeStyle = COLORS['nodeStroke'];
   ctx.lineWidth = 1.8 / globalScale;
   ctx.stroke();
 
@@ -52,7 +76,7 @@ function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number)
   const textHeight = fontSize;
   const pad = 3 / globalScale;
 
-  ctx.fillStyle = haloBg;
+  ctx.fillStyle = COLORS['haloBg'];
   ctx.beginPath();
   ctx.roundRect(
     node.x - textWidth / 2 - pad,
@@ -63,17 +87,18 @@ function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number)
   );
   ctx.fill();
 
-  ctx.fillStyle = haloFg;
+  ctx.fillStyle = COLORS['haloFg'];
   ctx.fillText(label, node.x, textY);
 
-  const statusColor = node.status === 'online' ? '#24a148'
-    : node.status === 'offline' ? '#da1e28'
-    : '#a8a8a8';
+  /* Status dot — Cisco Green online, IBM Red offline */
+  const statusColor = node.status === 'online' ? COLORS['online']
+    : node.status === 'offline' ? COLORS['offline']
+    : COLORS['default'];
   ctx.beginPath();
   ctx.arc(node.x + nodeRadius - 1.5, node.y - nodeRadius + 1.5, 2.8, 0, 2 * Math.PI);
   ctx.fillStyle = statusColor;
   ctx.fill();
-  ctx.strokeStyle = nodeStroke;
+  ctx.strokeStyle = COLORS['nodeStroke'];
   ctx.lineWidth = 1 / globalScale;
   ctx.stroke();
 }
@@ -129,9 +154,7 @@ export function Topology() {
   };
 
   const linkColorFn = useCallback((_link: any) => {
-    const cs = getComputedStyle(window.document.documentElement);
-    const val = cs.getPropertyValue('--canvas-link-color').trim();
-    return val ? toColor(val) : '#a8a8a8';
+    return COLORS['link'] || '#a8a8a8';
   }, []);
 
   if (isLoading) {
@@ -146,7 +169,7 @@ export function Topology() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
       <div className="bg-card border-b border-border px-6 py-4">
         <div className="flex justify-between items-center">
           <div>
@@ -206,7 +229,7 @@ export function Topology() {
               onClick={() => setHierarchical((v) => !v)}
               className={`flex items-center space-x-2 px-3 py-2 rounded-sm text-sm font-medium ${
                 hierarchical
-                  ? 'bg-btn-accent text-btn-accent-foreground'
+                  ? 'bg-ibm-purple text-white'
                   : 'text-muted-foreground hover:bg-surface-hover'
               }`}
               title={hierarchical ? 'Switch to force-directed layout' : 'Switch to hierarchical layout'}
@@ -216,7 +239,7 @@ export function Topology() {
             </button>
             <button
               onClick={refresh}
-              className="flex items-center space-x-2 px-4 py-2 bg-btn-accent text-btn-accent-foreground rounded-sm hover:bg-btn-accent-hover"
+              className="flex items-center space-x-2 px-4 py-2 bg-cisco-teal text-white rounded-sm hover:bg-cisco-teal/70"
             >
               <RefreshCw className="h-4 w-4" />
               <span>Refresh</span>

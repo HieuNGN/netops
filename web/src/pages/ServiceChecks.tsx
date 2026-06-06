@@ -102,7 +102,7 @@ export function ServiceChecks() {
         </div>
         <button
           onClick={() => setShowAddForm(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-btn-primary text-btn-primary-foreground rounded-sm hover:bg-btn-primary-hover"
+          className="flex items-center space-x-2 px-4 py-2 bg-cisco-green text-white rounded-sm hover:bg-cisco-green/90"
         >
           <Plus className="h-4 w-4" />
           <span>Add Check</span>
@@ -200,7 +200,7 @@ export function ServiceChecks() {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-btn-primary text-btn-primary-foreground rounded-sm hover:bg-btn-primary-hover"
+                className="px-4 py-2 bg-cisco-green text-white rounded-sm hover:bg-cisco-green/90"
               >
                 Add Check
               </button>
