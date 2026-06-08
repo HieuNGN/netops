@@ -6,9 +6,13 @@ import apiClient from '../../api/client';
 // Mock apiClient
 vi.mock('../../api/client', () => ({
   default: {
-    defaults: { headers: { common: {} as Record<string, string> } },
     post: vi.fn(),
     get: vi.fn(),
+    defaults: {
+      headers: {
+        common: {} as Record<string, string>,
+      },
+    },
   },
 }));
 
@@ -19,24 +23,24 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe('useAuth', () => {
   beforeEach(() => {
     localStorage.clear();
-    (apiClient.defaults.headers.common as Record<string, string>) = {};
     vi.clearAllMocks();
   });
 
   it('initial state: not authenticated, loading then false', async () => {
+    vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 401 } });
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.token).toBeNull();
     expect(result.current.isAuthenticated).toBe(false);
   });
 
-  it('login stores token and sets header', async () => {
-    vi.mocked(apiClient.post).mockResolvedValueOnce({
-      data: { token: 'abc123', username: 'admin', role: 'admin' },
-    } as any);
+  it('login sets authenticated and user info', async () => {
+    // Mount call rejects (not logged in)
+    vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 401 } });
+    // Login then calls get /api/auth/me
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       data: { username: 'admin', role: 'admin' },
     } as any);
+    vi.mocked(apiClient.post).mockResolvedValueOnce({} as any);
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -45,18 +49,18 @@ describe('useAuth', () => {
       await result.current.login('admin', 'password');
     });
 
-    expect(localStorage.getItem('token')).toBe('abc123');
-    expect(apiClient.defaults.headers.common['Authorization']).toBe('Bearer abc123');
+    expect(result.current.isAuthenticated).toBe(true);
     expect(result.current.username).toBe('admin');
   });
 
-  it('logout clears token and header', async () => {
-    vi.mocked(apiClient.post).mockResolvedValueOnce({
-      data: { token: 'abc123', username: 'admin', role: 'admin' },
-    } as any);
+  it('logout clears state', async () => {
+    // Mount call rejects
+    vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 401 } });
+    // Login get call
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       data: { username: 'admin', role: 'admin' },
     } as any);
+    vi.mocked(apiClient.post).mockResolvedValueOnce({} as any); // login post
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -64,9 +68,14 @@ describe('useAuth', () => {
       await result.current.login('admin', 'password');
     });
 
-    act(() => result.current.logout());
+    // Logout post
+    vi.mocked(apiClient.post).mockResolvedValueOnce({} as any);
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.username).toBeNull();
     expect(localStorage.getItem('token')).toBeNull();
-    expect(apiClient.defaults.headers.common['Authorization']).toBeUndefined();
-    expect(result.current.token).toBeNull();
   });
 });
