@@ -124,12 +124,21 @@ export const HINTS: Record<
             <p className="text-[12px] text-foreground/90 mb-1">
               Send{' '}
               <code className="font-mono text-[12px] bg-surface-subtle px-1 rounded-sm">/start</code>{' '}
-              to your bot, then open:
+              to your bot, then open in a browser:
             </p>
             <CodeBlock value="https://api.telegram.org/bot<TOKEN>/getUpdates" />
             <p className="text-[12px] text-foreground/90 mt-1">
-              Copy <code className="font-mono text-[12px]">chat.id</code> from the JSON response.
+              Look inside <code className="font-mono text-[12px] bg-surface-subtle px-1 rounded-sm">result[0].message.chat.id</code>{' '}
+              in the JSON. In private chats this equals your user ID.
             </p>
+            <details className="text-[11px] text-muted-foreground mt-1">
+              <summary className="cursor-pointer hover:text-foreground">Show sample JSON</summary>
+              <CodeBlock
+                value={
+                  '{\n  "ok": true,\n  "result": [\n    {\n      "message": {\n        "chat": {\n          "id": 123456789\n        }\n      }\n    }\n  ]\n}'
+                }
+              />
+            </details>
           </div>
           <div>
             <p className="text-[12px] font-semibold text-foreground mb-1">3. Group chat</p>

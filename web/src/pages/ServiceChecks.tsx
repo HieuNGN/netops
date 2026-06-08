@@ -12,7 +12,7 @@ const CHECK_TYPES = [
 ];
 
 export function ServiceChecks() {
-  const { checks, isLoading, createCheck, deleteCheck, runCheck } = useChecks();
+  const { checks, isLoading, createCheck, deleteCheck, runCheck, defaults } = useChecks();
   const toast = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null);
@@ -129,7 +129,14 @@ export function ServiceChecks() {
                 <label className="block text-sm font-medium text-foreground mb-1">Check Type *</label>
                 <select
                   value={newCheck.check_type}
-                  onChange={(e) => setNewCheck({ ...newCheck, check_type: e.target.value })}
+                  onChange={(e) => {
+                    const newType = e.target.value;
+                    setNewCheck({
+                      ...newCheck,
+                      check_type: newType,
+                      interval_seconds: defaults[newType] || newCheck.interval_seconds,
+                    });
+                  }}
                   className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm focus:ring-1 focus:ring-ring"
                 >
                   {CHECK_TYPES.map((type) => (

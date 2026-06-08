@@ -2,7 +2,8 @@ import { useRef, useMemo, useState, useCallback } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { RefreshCw, ZoomIn, ZoomOut, LayoutTemplate, GitBranch, Maximize, RotateCcw } from 'lucide-react';
 import { useTopology } from '../hooks/useTopology';
-import { useDeviceEvents } from '../hooks';
+import { useDeviceEvents, useNetworks } from '../hooks';
+import { FilterSelect } from '../components/ui/FilterSelect';
 
 function toColor(val: string): string {
   return /^\d/.test(val) ? `hsl(${val})` : val;
@@ -106,9 +107,13 @@ function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number)
 export function Topology() {
   const { topology, isLoading, refresh, isStreaming, lastUpdate } = useTopology();
   useDeviceEvents();
+  const { networks } = useNetworks();
   const graphRef = useRef<any>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [hierarchical, setHierarchical] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [networkFilter, setNetworkFilter] = useState<string>('all');
 
   const handleFit = useCallback(() => {
     graphRef.current?.zoomToFit(400, 20);
@@ -119,23 +124,36 @@ export function Topology() {
     graphRef.current?.zoom(1, 400);
   }, []);
 
-  const graphData = useMemo(() => ({
-    nodes: topology.nodes.map((n) => ({
-      id: n.id,
-      label: n.label || n.id,
-      status: n.status,
-      node_type: n.node_type,
-      device_id: n.device_id,
-      level: n.level ?? (n.node_type === 'firewall' ? 0 : n.node_type === 'router' ? 1 : n.node_type === 'switch' ? 3 : 2),
-    })),
-    links: topology.links.map((l) => ({
-      source: l.source_id,
-      target: l.target_id,
-      source_port: l.source_port,
-      target_port: l.target_port,
-      status: l.status,
-    })),
-  }), [topology.nodes, topology.links]);
+  const graphData = useMemo(() => {
+    const filteredNodes = topology.nodes.filter((n) => {
+      if (statusFilter !== 'all' && n.status !== statusFilter) return false;
+      if (typeFilter !== 'all' && n.node_type !== typeFilter) return false;
+      if (networkFilter !== 'all' && n.network_id !== networkFilter) return false;
+      return true;
+    });
+    const nodeIds = new Set(filteredNodes.map(n => n.id));
+    const filteredLinks = topology.links.filter(
+      (l) => nodeIds.has(l.source_id) && nodeIds.has(l.target_id)
+    );
+    return {
+      nodes: filteredNodes.map((n) => ({
+        id: n.id,
+        label: n.label || n.id,
+        status: n.status,
+        node_type: n.node_type,
+        device_id: n.device_id,
+        network_id: n.network_id,
+        level: n.level ?? (n.node_type === 'firewall' ? 0 : n.node_type === 'router' ? 1 : n.node_type === 'switch' ? 3 : 2),
+      })),
+      links: filteredLinks.map((l) => ({
+        source: l.source_id,
+        target: l.target_id,
+        source_port: l.source_port,
+        target_port: l.target_port,
+        status: l.status,
+      })),
+    };
+  }, [topology.nodes, topology.links, statusFilter, typeFilter, networkFilter]);
 
   const handleNodeClick = (node: any) => {
     setSelectedNode(node);
@@ -189,6 +207,11 @@ export function Topology() {
             </div>
             <p className="text-muted-foreground text-sm mt-1">
               {graphData.nodes.length} nodes • {graphData.links.length} links
+              {(statusFilter !== 'all' || typeFilter !== 'all' || networkFilter !== 'all') && (
+                <span className="text-foreground font-medium">
+                  {' '}(filtered from {topology.nodes.length} nodes)
+                </span>
+              )}
               {lastUpdate && (
                 <span className="ml-2">
                   • Updated {lastUpdate.toLocaleTimeString()}
@@ -245,6 +268,38 @@ export function Topology() {
               <span>Refresh</span>
             </button>
           </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          <FilterSelect label="status" value={statusFilter} onChange={setStatusFilter} options={[
+            { value: 'online', label: 'online' },
+            { value: 'offline', label: 'offline' },
+            { value: 'unknown', label: 'unknown' },
+          ]} />
+          <FilterSelect label="type" value={typeFilter} onChange={setTypeFilter} options={[
+            { value: 'router', label: 'router' },
+            { value: 'switch', label: 'switch' },
+            { value: 'firewall', label: 'firewall' },
+            { value: 'server', label: 'server' },
+            { value: 'host', label: 'host' },
+          ]} />
+          <FilterSelect
+            label="network"
+            value={networkFilter}
+            onChange={setNetworkFilter}
+            options={networks.map((n) => ({ value: n.id, label: n.name }))}
+          />
+          {(statusFilter !== 'all' || typeFilter !== 'all' || networkFilter !== 'all') && (
+            <button
+              onClick={() => {
+                setStatusFilter('all');
+                setTypeFilter('all');
+                setNetworkFilter('all');
+              }}
+              className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground"
+            >
+              clear
+            </button>
+          )}
         </div>
       </div>
 

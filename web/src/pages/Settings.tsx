@@ -10,8 +10,6 @@ import {
   Check,
   Plus,
   Minus,
-  Trash2,
-  Send,
   X,
 } from "lucide-react";
 import { useToast, HintPopover } from "../components/ui";
@@ -21,7 +19,7 @@ import type { IntegrationConfig, IntegrationType } from "../api/endpoints";
 import {
   INTEGRATION_TYPES,
   getFieldsForType,
-  getTypeLabel,
+  HINTS,
 } from "../lib/integrations";
 
 export function Settings() {
@@ -156,45 +154,12 @@ export function Settings() {
     },
   });
 
-  const deleteIntegration = useMutation({
-    mutationFn: (id: string) => integrationsApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integrations"] });
-      toast.success("Integration deleted");
-    },
-    onError: (e: any) => {
-      toast.error(e?.response?.data?.detail || "Failed to delete integration");
-    },
-  });
-
-  const testIntegration = useMutation({
-    mutationFn: (id: string) => integrationsApi.test(id),
-    onSuccess: (resp) => {
-      if (resp.data.sent) {
-        toast.success("Test message sent");
-      } else {
-        toast.error("Test failed — check integration config");
-      }
-    },
-    onError: (e: any) => {
-      toast.error(e?.response?.data?.detail || "Test failed");
-    },
-  });
-
   const resetIntegrationForm = () => {
     setShowIntegrationForm(false);
     setEditingIntegration(null);
     setIntFormType("telegram");
     setIntFormName("");
     setIntFormSecrets({});
-  };
-
-  const startEditIntegration = (integ: IntegrationConfig) => {
-    setEditingIntegration(integ);
-    setIntFormType(integ.type);
-    setIntFormName(integ.name);
-    setIntFormSecrets({ ...integ.secrets_json });
-    setShowIntegrationForm(true);
   };
 
   const handleIntegrationSubmit = (e: React.FormEvent) => {

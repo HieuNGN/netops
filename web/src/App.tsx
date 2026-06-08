@@ -1,15 +1,25 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useCallback, useState } from 'react';
 import { Header, PostSignupBanner } from './components/layout';
 import { ToastProvider } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import {
+  useDeviceEvents,
+  type ProfileGuessedEvent,
+  type NetworkChangedEvent,
+} from './hooks/useDeviceEvents';
+import {
+  ProfileConfirmModal,
+  type EnvironmentProfileName,
+} from './components/ProfileConfirmModal';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Topology = lazy(() => import('./pages/Topology'));
 const TopologyHistory = lazy(() => import('./pages/TopologyHistory'));
 const Devices = lazy(() => import('./pages/Devices'));
+const DeviceDetail = lazy(() => import('./pages/DeviceDetail'));
 const ServiceChecks = lazy(() => import('./pages/ServiceChecks'));
 const Alerts = lazy(() => import('./pages/Alerts'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -26,9 +36,35 @@ const queryClient = new QueryClient({
 });
 
 function ProtectedApp() {
-  const { token, loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
   const location = useLocation();
   const isAuthRoute = location.pathname === '/login';
+
+  const [pendingGuess, setPendingGuess] = useState<{
+    profile: EnvironmentProfileName;
+    deviceCount: number;
+    source: 'startup' | 'runtime' | 'manual';
+  } | null>(null);
+
+  const handleProfileGuessed = useCallback((e: ProfileGuessedEvent) => {
+    if (e.confirmed) return;
+    setPendingGuess({
+      profile: e.profile,
+      deviceCount: e.device_count,
+      source: 'runtime',
+    });
+  }, []);
+
+  const handleNetworkChanged = useCallback((e: NetworkChangedEvent) => {
+    if (e.source === 'watcher') {
+      setPendingGuess(null);
+    }
+  }, []);
+
+  useDeviceEvents({
+    onProfileGuessed: handleProfileGuessed,
+    onNetworkChanged: handleNetworkChanged,
+  });
 
   if (loading) {
     return (
@@ -49,16 +85,27 @@ function ProtectedApp() {
       }>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={token ? <Dashboard /> : <Navigate to="/login" replace />} />
-          <Route path="/topology" element={token ? <Topology /> : <Navigate to="/login" replace />} />
-          <Route path="/topology/history" element={token ? <TopologyHistory /> : <Navigate to="/login" replace />} />
-          <Route path="/devices" element={token ? <Devices /> : <Navigate to="/login" replace />} />
-          <Route path="/checks" element={token ? <ServiceChecks /> : <Navigate to="/login" replace />} />
-          <Route path="/alerts" element={token ? <Alerts /> : <Navigate to="/login" replace />} />
-          <Route path="/settings" element={token ? <Settings /> : <Navigate to="/login" replace />} />
+          <Route path="/" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" replace />} />
+          <Route path="/topology" element={isAuthenticated ? <Topology /> : <Navigate to="/login" replace />} />
+          <Route path="/topology/history" element={isAuthenticated ? <TopologyHistory /> : <Navigate to="/login" replace />} />
+          <Route path="/devices" element={isAuthenticated ? <Devices /> : <Navigate to="/login" replace />} />
+          <Route path="/devices/:id" element={isAuthenticated ? <DeviceDetail /> : <Navigate to="/login" replace />} />
+          <Route path="/checks" element={isAuthenticated ? <ServiceChecks /> : <Navigate to="/login" replace />} />
+          <Route path="/alerts" element={isAuthenticated ? <Alerts /> : <Navigate to="/login" replace />} />
+          <Route path="/settings" element={isAuthenticated ? <Settings /> : <Navigate to="/login" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
+      {pendingGuess && (
+        <ProfileConfirmModal
+          open={!!pendingGuess}
+          detectedProfile={pendingGuess.profile}
+          deviceCount={pendingGuess.deviceCount}
+          source={pendingGuess.source}
+          onDismiss={() => setPendingGuess(null)}
+          onConfirmed={() => setPendingGuess(null)}
+        />
+      )}
     </div>
   );
 }

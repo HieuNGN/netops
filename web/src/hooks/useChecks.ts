@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { checksApi } from '../api';
+import { checksApi, configApi } from '../api';
 import type { ServiceCheck } from '../api';
 
 export function useChecks() {
@@ -11,6 +11,15 @@ export function useChecks() {
       const response = await checksApi.list();
       return response.data;
     },
+  });
+
+  const { data: defaults } = useQuery({
+    queryKey: ['check-defaults'],
+    queryFn: async () => {
+      const response = await configApi.checkDefaults();
+      return response.data.check_intervals;
+    },
+    staleTime: 5 * 60_000,
   });
 
   const createMutation = useMutation({
@@ -49,6 +58,7 @@ export function useChecks() {
 
   return {
     checks: checks || [],
+    defaults: defaults || {},
     isLoading,
     error,
     createCheck: createMutation.mutateAsync,

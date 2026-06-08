@@ -124,6 +124,8 @@ export function Alerts() {
     config: {} as Record<string, string>,
     integration_id: null as string | null,
     enabled: true,
+    escalation_minutes: null as number | null,
+    escalated_severity: null as string | null,
   };
   const [newAlert, setNewAlert] = useState({ ...emptyForm });
 
@@ -329,6 +331,8 @@ export function Alerts() {
       config: alert.config_json || {},
       integration_id: alert.integration_id,
       enabled: alert.enabled,
+      escalation_minutes: alert.escalation_minutes,
+      escalated_severity: alert.escalated_severity,
     });
     setEditingAlertId(alert.id);
     setShowAddForm(true);
@@ -360,6 +364,8 @@ export function Alerts() {
       config: cleanedConfig,
       integration_id: newAlert.integration_id,
       enabled: newAlert.enabled,
+      escalation_minutes: newAlert.escalation_minutes,
+      escalated_severity: newAlert.escalated_severity,
     };
     if (editingAlertId) {
       updateMutation.mutate({ id: editingAlertId, data: payload });
@@ -435,26 +441,34 @@ export function Alerts() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Alerts</h1>
-          <p className="text-muted-foreground mt-1">
-            Configure alert rules and notifications
+          <h1 className="text-2xl font-semibold text-foreground">Alerts</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {derivedTab === "active" && activeAlerts.length === 0
+              ? "No active alerts · all systems clear"
+              : derivedTab === "active"
+                ? `${activeAlerts.length} active alert${activeAlerts.length === 1 ? "" : "s"}`
+                : derivedTab === "rules"
+                  ? `${alerts.length} rule${alerts.length === 1 ? "" : "s"}`
+                  : derivedTab === "integrations"
+                    ? `${allIntegrations.length} integration${allIntegrations.length === 1 ? "" : "s"}`
+                    : `${windows.length} maintenance window${windows.length === 1 ? "" : "s"}`}
           </p>
         </div>
         {derivedTab === "rules" && (
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             <span>Add Alert</span>
           </button>
         )}
         {derivedTab === "windows" && (
           <button
             onClick={() => setShowWindowForm(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             <span>Add Window</span>
           </button>
         )}
@@ -464,9 +478,9 @@ export function Alerts() {
               resetIntegForm();
               setShowIntegForm(true);
             }}
-            className="flex items-center space-x-2 px-4 py-2 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             <span>Add Integration</span>
           </button>
         )}
@@ -474,61 +488,41 @@ export function Alerts() {
 
       {/* Tabs */}
       <div className="mb-6 border-b border-border">
-        <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => switchTab("active")}
-            className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
-              derivedTab === "active"
-                ? "border-destructive text-destructive"
-                : "border-transparent text-muted-foreground hover:text-foreground dark:hover:text-foreground"
-            }`}
-          >
-            <Bell className="h-4 w-4" />
-            <span>Active Alerts</span>
-            {activeAlerts.length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 bg-thinkpad-red text-white text-xs rounded-sm font-medium">
-                {activeAlerts.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => switchTab("rules")}
-            className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
-              derivedTab === "rules"
-                ? "border-destructive text-destructive"
-                : "border-transparent text-muted-foreground hover:text-foreground dark:hover:text-foreground"
-            }`}
-          >
-            <Bell className="h-4 w-4" />
-            <span>Alert Rules</span>
-          </button>
-          <button
-            onClick={() => switchTab("integrations")}
-            className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
-              derivedTab === "integrations"
-                ? "border-destructive text-destructive"
-                : "border-transparent text-muted-foreground hover:text-foreground dark:hover:text-foreground"
-            }`}
-          >
-            <Bell className="h-4 w-4" />
-            <span>Integrations</span>
-            {allIntegrations.length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 bg-surface-subtle text-muted-foreground text-xs rounded-sm font-medium">
-                {allIntegrations.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => switchTab("windows")}
-            className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
-              derivedTab === "windows"
-                ? "border-destructive text-destructive"
-                : "border-transparent text-muted-foreground hover:text-foreground dark:hover:text-foreground"
-            }`}
-          >
-            <Clock className="h-4 w-4" />
-            <span>Maintenance Windows</span>
-          </button>
+        <nav className="-mb-px flex space-x-1">
+          {[
+            { key: "active", label: "Active Alerts", icon: Bell, count: activeAlerts.length, countVariant: 'danger' as const },
+            { key: "rules", label: "Alert Rules", icon: Bell, count: alerts.length, countVariant: 'neutral' as const },
+            { key: "integrations", label: "Integrations", icon: AlertCircle, count: allIntegrations.length, countVariant: 'neutral' as const },
+            { key: "windows", label: "Maintenance Windows", icon: Clock, count: windows.length, countVariant: 'neutral' as const },
+          ].map((t) => {
+            const isActive = derivedTab === t.key;
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.key}
+                onClick={() => switchTab(t.key as any)}
+                className={`flex items-center space-x-2 py-3 px-3 border-b-2 text-sm font-medium transition-colors ${
+                  isActive
+                    ? "border-ibm-blue text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{t.label}</span>
+                {t.count > 0 && (
+                  <span
+                    className={`ml-1 px-1.5 py-0.5 text-xs rounded-sm font-medium tabular-nums ${
+                      t.countVariant === 'danger' && isActive
+                        ? 'bg-thinkpad-red text-white'
+                        : 'bg-surface-subtle text-muted-foreground'
+                    }`}
+                  >
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </nav>
       </div>
 
@@ -626,6 +620,49 @@ export function Alerts() {
                         {newAlert.enabled ? "Enabled" : "Disabled"}
                       </span>
                     </label>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">
+                      Escalation (minutes)
+                      <span className="text-xs text-muted-foreground ml-2">
+                        (optional)
+                      </span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={newAlert.escalation_minutes ?? ""}
+                      onChange={(e) =>
+                        setNewAlert({
+                          ...newAlert,
+                          escalation_minutes: e.target.value ? parseInt(e.target.value) : null,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm focus:ring-1 focus:ring-destructive"
+                      placeholder="e.g., 30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">
+                      Escalated Severity
+                      <span className="text-xs text-muted-foreground ml-2">
+                        (if escalation enabled)
+                      </span>
+                    </label>
+                    <select
+                      value={newAlert.escalated_severity ?? ""}
+                      onChange={(e) =>
+                        setNewAlert({
+                          ...newAlert,
+                          escalated_severity: e.target.value || null,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm focus:ring-1 focus:ring-destructive"
+                    >
+                      <option value="">— None —</option>
+                      <option value="warning">warning</option>
+                      <option value="critical">critical</option>
+                    </select>
                   </div>
                 </div>
 
@@ -747,20 +784,27 @@ export function Alerts() {
           )}
 
           {/* Alerts List */}
-          <div className="bg-card rounded-sm shadow-sm border border-border overflow-hidden">
-            <div className="px-6 py-4 border-b border-border">
-              <h2 className="text-lg font-semibold text-foreground">
-                Alert Rules
+          <div className="bg-card border border-border rounded-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-surface-subtle flex justify-between items-center">
+              <h2 className="text-sm font-semibold text-foreground">
+                Configured Rules
               </h2>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {alerts.length} {alerts.length === 1 ? "rule" : "rules"}
+              </span>
             </div>
             <div className="divide-y divide-border">
               {isLoading ? (
-                <div className="px-6 py-8 text-center text-muted-foreground">
-                  Loading alerts...
+                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+                  Loading alerts…
                 </div>
               ) : alerts.length === 0 ? (
-                <div className="px-6 py-8 text-center text-muted-foreground">
-                  No alert rules configured. Add your first alert above.
+                <div className="px-6 py-12 text-center">
+                  <Bell className="h-6 w-6 text-muted-foreground mx-auto mb-2 opacity-50" />
+                  <p className="text-sm font-medium text-foreground">No alert rules yet</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                    Create a rule to send notifications when devices go down, links flap, or checks fail.
+                  </p>
                 </div>
               ) : (
                 alerts.map((alert) => {
@@ -784,6 +828,12 @@ export function Alerts() {
                             <span className="px-2 py-0.5 bg-badge-neutral-bg text-badge-neutral-fg text-xs rounded">
                               {alert.channel}
                             </span>
+                            {alert.escalation_minutes && alert.escalated_severity && (
+                              <span className="px-2 py-0.5 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 text-xs rounded inline-flex items-center space-x-1">
+                                <Clock className="h-3 w-3" />
+                                <span>Escalate → {alert.escalated_severity} after {alert.escalation_minutes}m</span>
+                              </span>
+                            )}
                             {linkedInteg && (
                               <span
                                 className="px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs rounded inline-flex items-center space-x-1"
@@ -840,23 +890,19 @@ export function Alerts() {
       )}
 
       {derivedTab === "active" && (
-        <div className="bg-card rounded-sm shadow-sm border border-border overflow-hidden">
-          <div className="px-6 py-4 border-b border-border flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-foreground">
-              Active Alerts
-            </h2>
-            <span className="text-sm text-muted-foreground">
-              Refreshes every 15s
-            </span>
+        <div className="bg-card border border-border rounded-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-border bg-surface-subtle flex justify-between items-center">
+            <h2 className="text-sm font-semibold text-foreground">Firing Now</h2>
+            <span className="text-xs text-muted-foreground">refreshes every 15s</span>
           </div>
           <div className="divide-y divide-border">
             {activeAlertsLoading ? (
-              <div className="px-6 py-8 text-center text-muted-foreground">
-                Loading alerts...
-              </div>
+              <div className="px-6 py-12 text-center text-sm text-muted-foreground">Loading alerts…</div>
             ) : activeAlerts.length === 0 ? (
-              <div className="px-6 py-8 text-center text-muted-foreground">
-                No active alerts. All systems clear.
+              <div className="px-6 py-12 text-center">
+                <Check className="h-6 w-6 text-cisco-green mx-auto mb-2" />
+                <p className="text-sm font-medium text-foreground">All systems clear</p>
+                <p className="text-xs text-muted-foreground mt-1">No active alerts. Configured rules will appear here when triggered.</p>
               </div>
             ) : (
               activeAlerts.map((alert) => (
@@ -1022,21 +1068,27 @@ export function Alerts() {
           )}
 
           {/* Maintenance Windows List */}
-          <div className="bg-card rounded-sm shadow-sm border border-border overflow-hidden">
-            <div className="px-6 py-4 border-b border-border">
-              <h2 className="text-lg font-semibold text-foreground">
-                Maintenance Windows
+          <div className="bg-card border border-border rounded-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-surface-subtle flex justify-between items-center">
+              <h2 className="text-sm font-semibold text-foreground">
+                Scheduled Windows
               </h2>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {windows.length} {windows.length === 1 ? "window" : "windows"}
+              </span>
             </div>
             <div className="divide-y divide-border">
               {windowsLoading ? (
-                <div className="px-6 py-8 text-center text-muted-foreground">
-                  Loading windows...
+                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+                  Loading windows…
                 </div>
               ) : windows.length === 0 ? (
-                <div className="px-6 py-8 text-center text-muted-foreground">
-                  No maintenance windows configured. Add a window to suppress
-                  alerts during planned downtime.
+                <div className="px-6 py-12 text-center">
+                  <Clock className="h-6 w-6 text-muted-foreground mx-auto mb-2 opacity-50" />
+                  <p className="text-sm font-medium text-foreground">No maintenance windows scheduled</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                    Add a window to suppress alerts during planned downtime.
+                  </p>
                 </div>
               ) : (
                 windows.map((window) => {
@@ -1202,20 +1254,22 @@ export function Alerts() {
           )}
 
           {/* Integration list */}
-          <div className="bg-card rounded-sm shadow-sm border border-border overflow-hidden">
-            <div className="px-6 py-4 border-b border-border">
-              <h2 className="text-lg font-semibold text-foreground">
+          <div className="bg-card border border-border rounded-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-surface-subtle">
+              <h2 className="text-sm font-semibold text-foreground">
                 Notification Integrations
               </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Global notification credentials. Alert rules reference these
-                from the Alert Rules tab.
+              <p className="text-xs text-muted-foreground mt-1">
+                Global notification credentials. Alert rules reference these from the Alert Rules tab.
               </p>
             </div>
             {allIntegrations.length === 0 ? (
-              <div className="px-6 py-8 text-center text-muted-foreground">
-                No communication channel established yet. Click{" "}
-                <strong>Add Integration</strong>, then create alert rules that.
+              <div className="px-6 py-12 text-center">
+                <AlertCircle className="h-6 w-6 text-muted-foreground mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-medium text-foreground">No communication channel established</p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                  Add an integration, then create alert rules that reference it.
+                </p>
               </div>
             ) : (
               <div className="divide-y divide-border">

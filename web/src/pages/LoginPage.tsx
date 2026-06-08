@@ -1,86 +1,151 @@
-import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { useNavigate, Navigate, Link } from 'react-router-dom';
-import { Box, Key, Eye, EyeOff, Shield, User, Mail, ArrowRight, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useRef } from "react";
+import { useAuth } from "../hooks/useAuth";
+import { useSetProfile } from "../hooks/useConfig";
+import { useNavigate, Navigate, Link } from "react-router-dom";
+import {
+  Box,
+  Key,
+  Eye,
+  EyeOff,
+  Shield,
+  User,
+  Mail,
+  ArrowRight,
+  AlertTriangle,
+  Server,
+  Building2,
+  Cloud,
+} from "lucide-react";
 
-type Mode = 'signin' | 'signup';
+type Mode = "signin" | "signup";
 
 export function LoginPage() {
-  const { login, signup, token } = useAuth();
+  const { login, signup, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>('signin');
+  const [mode, setMode] = useState<Mode>("signin");
 
   // shared
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   // signup-only
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [accepted, setAccepted] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const setProfileMutation = useSetProfile();
 
   const usernameRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { usernameRef.current?.focus(); }, [mode]);
+  useEffect(() => {
+    usernameRef.current?.focus();
+  }, [mode]);
 
-  if (token) return <Navigate to="/" replace />;
+  if (isAuthenticated) return <Navigate to="/" replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError("");
 
-    if (mode === 'signup') {
-      if (password !== confirm) { setError('Passwords do not match'); return; }
-      if (!accepted) { setError('Accept the operator terms to continue'); return; }
+    if (mode === "signup") {
+      if (password !== confirm) {
+        setError("Passwords do not match");
+        return;
+      }
+      if (!accepted) {
+        setError("Accept the operator terms to continue");
+        return;
+      }
       setLoading(true);
       try {
         await signup({ username, email, name, password });
-        navigate('/');
-    } catch (err) {
-      setError(extractError(err, 'Sign up failed'));
-    } finally { setLoading(false); }
+        setShowProfileModal(true);
+      } catch (err) {
+        setError(extractError(err, "Sign up failed"));
+      } finally {
+        setLoading(false);
+      }
     } else {
       setLoading(true);
-      try { await login(username, password); navigate('/'); }
-      catch (err) { setError(extractError(err, 'Invalid credentials')); }
-      finally { setLoading(false); }
+      try {
+        await login(username, password);
+        navigate("/");
+      } catch (err) {
+        setError(extractError(err, "Invalid credentials"));
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
   function extractError(err: unknown, fallback: string): string {
-    const data = (err as { response?: { data?: unknown } })?.response?.data;
-    if (data && typeof data === 'object') {
+    const axiosErr = err as {
+      response?: { data?: unknown; status?: number };
+      message?: string;
+      code?: string;
+    };
+    const data = axiosErr?.response?.data;
+    const status = axiosErr?.response?.status;
+
+    // Network errors (no response)
+    if (!axiosErr.response) {
+      if (axiosErr.code === "ECONNABORTED") return "Request timed out. Backend may be down.";
+      if (axiosErr.code === "ERR_NETWORK") return "Cannot reach backend. Check if server is running.";
+      return "Network error. Check connection.";
+    }
+
+    // Server errors (500)
+    if (status && status >= 500) {
+      return "Server error. Try again later.";
+    }
+
+    if (data && typeof data === "object") {
+      // Rate limits return {"error": "..."}
+      const errorMsg = (data as { error?: string }).error;
+      if (typeof errorMsg === "string") return errorMsg;
+
+      // Standard FastAPI errors return {"detail": "..."}
       const detail = (data as { detail?: unknown }).detail;
-      if (typeof detail === 'string') return detail;
+      if (typeof detail === "string") return detail;
+
+      // Pydantic validation errors return {"detail": [{msg: "...", loc: [...]}]}
       if (Array.isArray(detail) && detail.length > 0) {
         const first = detail[0] as { msg?: string; loc?: unknown[] };
-        if (typeof first?.msg === 'string') {
-          return first.msg.replace(/^Value error,\s*/i, '');
+        if (typeof first?.msg === "string") {
+          return first.msg.replace(/^Value error,\s*/i, "");
         }
       }
     }
+
     return fallback;
   }
 
-  const switchMode = (m: Mode) => { setMode(m); setError(''); };
+  const switchMode = (m: Mode) => {
+    setMode(m);
+    setError("");
+  };
 
   return (
     <div className="min-h-screen w-full grid grid-cols-1 md:grid-cols-[1.1fr_1fr] bg-background text-foreground font-mono">
       <aside className="relative hidden md:flex flex-col justify-between p-10 border-r border-border bg-[#0a0a0a] text-[#f4f4f4] overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none opacity-[0.07]"
-             style={{
-               backgroundImage:
-                 'repeating-linear-gradient(0deg, transparent 0 23px, #f4f4f4 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, #f4f4f4 23px 24px)',
-             }} />
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.07]"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(0deg, transparent 0 23px, #f4f4f4 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, #f4f4f4 23px 24px)",
+          }}
+        />
         <div className="relative z-10 flex items-center gap-3">
           <div className="w-10 h-10 grid place-items-center bg-thinkpad-red text-white">
             <Shield className="h-5 w-5" />
           </div>
           <div className="leading-tight">
-            <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">netops / v1</div>
+            <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+              netops / v1
+            </div>
             <div className="text-sm font-bold uppercase">Operator Console</div>
           </div>
         </div>
@@ -90,23 +155,27 @@ export function LoginPage() {
             // session {new Date().toISOString().slice(0, 10)} · node.alpha
           </div>
           <h2 className="text-3xl xl:text-4xl font-bold uppercase leading-[1.05] tracking-tight">
-            Topology.<br />
-            Devices.<br />
+            Topology.
+            <br />
+            Devices.
+            <br />
             <span className="text-destructive">Alarms.</span>
           </h2>
           <p className="mt-5 text-sm text-muted-foreground leading-relaxed">
-            Discover, poll, and audit your routed fabric. SNMPv2c / v3, LLDP, service checks,
-            and alert routing — one operator pane.
+            Discover, poll, and audit your routed network. SNMPv2c / v3, LLDP,
+            service checks, and alert routing — one operator pane.
           </p>
 
           <div className="mt-8 grid grid-cols-3 gap-px bg-[#f4f4f4]/20 border border-[#f4f4f4]/20">
             {[
-              { k: 'PROTO', v: 'SNMP' },
-              { k: 'GRAPH', v: 'LLDP' },
-              { k: 'ALERT', v: '24/7' },
+              { k: "PROTO", v: "SNMP" },
+              { k: "GRAPH", v: "LLDP" },
+              { k: "ALERT", v: "24/7" },
             ].map((m) => (
               <div key={m.k} className="bg-[#0a0a0a] p-3">
-                <div className="text-[9px] uppercase tracking-[0.25em] text-muted-foreground">{m.k}</div>
+                <div className="text-[9px] uppercase tracking-[0.25em] text-muted-foreground">
+                  {m.k}
+                </div>
                 <div className="text-sm font-bold mt-1">{m.v}</div>
               </div>
             ))}
@@ -114,8 +183,10 @@ export function LoginPage() {
         </div>
 
         <div className="relative z-10 text-[10px] uppercase tracking-[0.3em] text-muted-foreground flex items-center justify-between">
-          <span>// build {import.meta.env.MODE === 'production' ? 'prod' : 'dev'}</span>
-          <span>no cookies · jwt only</span>
+          <span>
+            // build {import.meta.env.MODE === "production" ? "prod" : "dev"}
+          </span>
+          <span>session via httpOnly cookie</span>
         </div>
       </aside>
 
@@ -124,26 +195,26 @@ export function LoginPage() {
           <header className="mb-6 flex items-end justify-between border-b border-foreground dark:border-border pb-3">
             <div>
               <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground dark:text-muted-foreground">
-                {mode === 'signin' ? '> access.request' : '> account.create'}
+                {mode === "signin" ? "> access.request" : "> account.create"}
               </div>
               <h1 className="text-2xl font-bold uppercase tracking-tight mt-1">
-                {mode === 'signin' ? 'Sign in' : 'Create account'}
+                {mode === "signin" ? "Sign in" : "Create account"}
               </h1>
             </div>
             <div className="flex border border-foreground dark:border-border">
-              {(['signin', 'signup'] as Mode[]).map((m) => (
+              {(["signin", "signup"] as Mode[]).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => switchMode(m)}
                   className={
-                    'px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] font-bold ' +
+                    "px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] font-bold " +
                     (mode === m
-                      ? 'bg-thinkpad-red text-white'
-                      : 'bg-transparent text-foreground hover:bg-surface-hover')
+                      ? "bg-thinkpad-red text-white"
+                      : "bg-transparent text-foreground hover:bg-surface-hover")
                   }
                 >
-                  {m === 'signin' ? 'Log in' : 'Sign up'}
+                  {m === "signin" ? "Log in" : "Sign up"}
                 </button>
               ))}
             </div>
@@ -157,7 +228,7 @@ export function LoginPage() {
               </div>
             )}
 
-            {mode === 'signup' && (
+            {mode === "signup" && (
               <>
                 <Field
                   id="name"
@@ -201,10 +272,12 @@ export function LoginPage() {
               <div className="relative">
                 <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input
-                  type={showPw ? 'text' : 'password'}
+                  type={showPw ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                  autoComplete={
+                    mode === "signin" ? "current-password" : "new-password"
+                  }
                   className="w-full pl-10 pr-10 py-2.5 bg-transparent border border-foreground dark:border-border focus:border-ring focus:ring-1 focus:ring-ring outline-none rounded-none"
                   placeholder="••••••••"
                   required
@@ -215,17 +288,21 @@ export function LoginPage() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
                   tabIndex={-1}
                 >
-                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showPw ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
                 </button>
               </div>
-              {mode === 'signup' && (
+              {mode === "signup" && (
                 <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                   min 8 · upper + lower + digit + symbol
                 </p>
               )}
             </div>
 
-            {mode === 'signup' && (
+            {mode === "signup" && (
               <>
                 <div>
                   <label className="block text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground dark:text-muted-foreground mb-1">
@@ -234,7 +311,7 @@ export function LoginPage() {
                   <div className="relative">
                     <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <input
-                      type={showPw ? 'text' : 'password'}
+                      type={showPw ? "text" : "password"}
                       value={confirm}
                       onChange={(e) => setConfirm(e.target.value)}
                       autoComplete="new-password"
@@ -253,8 +330,14 @@ export function LoginPage() {
                     className="mt-0.5 h-3 w-3 accent-[#da1e28]"
                   />
                   <span>
-                    I will operate this console responsibly and accept the{' '}
-                    <Link to="/terms" className="underline underline-offset-2 hover:text-destructive">operator terms</Link>.
+                    I will operate this console responsibly and accept the{" "}
+                    <Link
+                      to="/terms"
+                      className="underline underline-offset-2 hover:text-destructive"
+                    >
+                      operator terms
+                    </Link>
+                    .
                   </span>
                 </label>
               </>
@@ -266,16 +349,25 @@ export function LoginPage() {
               className="group w-full flex items-center justify-center gap-2 py-2.5 bg-thinkpad-red text-white uppercase tracking-[0.2em] text-xs font-bold hover:bg-thinkpad-red-hover disabled:opacity-50"
             >
               {loading
-                ? (mode === 'signin' ? 'Authenticating...' : 'Provisioning...')
-                : (mode === 'signin' ? 'Sign in' : 'Create account')}
-              {!loading && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
+                ? mode === "signin"
+                  ? "Authenticating..."
+                  : "Provisioning..."
+                : mode === "signin"
+                  ? "Sign in"
+                  : "Create account"}
+              {!loading && (
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              )}
             </button>
 
-            {mode === 'signin' && (
+            {mode === "signin" && (
               <p className="text-center text-[10px] uppercase tracking-[0.25em] text-muted-foreground dark:text-muted-foreground pt-2">
-                no account?{' '}
-                <button type="button" onClick={() => switchMode('signup')}
-                        className="text-destructive hover:underline underline-offset-2">
+                no account?{" "}
+                <button
+                  type="button"
+                  onClick={() => switchMode("signup")}
+                  className="text-destructive hover:underline underline-offset-2"
+                >
                   request access
                 </button>
               </p>
@@ -283,6 +375,62 @@ export function LoginPage() {
           </form>
         </div>
       </main>
+
+      {/* Profile selection modal after signup */}
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-foreground/20 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-sm p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Server className="h-5 w-5 text-ibm-blue" />
+              <h3 className="font-semibold text-foreground">Select Environment</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Choose your deployment profile to optimize monitoring defaults.
+            </p>
+            <div className="space-y-2 mb-4">
+              <button
+                onClick={() => { setProfileMutation.mutateAsync({ profile: 'homelab', confirmed: true }); navigate("/"); }}
+                disabled={setProfileMutation.isPending}
+                className="w-full flex items-center gap-3 px-4 py-3 border border-border rounded-sm hover:bg-surface-hover transition-colors text-left"
+              >
+                <Server className="h-5 w-5 text-cisco-teal" />
+                <div>
+                  <p className="font-medium text-foreground">Homelab</p>
+                  <p className="text-xs text-muted-foreground">Small network, aggressive polling</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setProfileMutation.mutateAsync({ profile: 'small_business', confirmed: true }); navigate("/"); }}
+                disabled={setProfileMutation.isPending}
+                className="w-full flex items-center gap-3 px-4 py-3 border border-border rounded-sm hover:bg-surface-hover transition-colors text-left"
+              >
+                <Building2 className="h-5 w-5 text-ibm-blue" />
+                <div>
+                  <p className="font-medium text-foreground">Small Business</p>
+                  <p className="text-xs text-muted-foreground">Balanced monitoring, moderate intervals</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setProfileMutation.mutateAsync({ profile: 'datacenter', confirmed: true }); navigate("/"); }}
+                disabled={setProfileMutation.isPending}
+                className="w-full flex items-center gap-3 px-4 py-3 border border-border rounded-sm hover:bg-surface-hover transition-colors text-left"
+              >
+                <Cloud className="h-5 w-5 text-ibm-purple" />
+                <div>
+                  <p className="font-medium text-foreground">Datacenter</p>
+                  <p className="text-xs text-muted-foreground">Conservative polling, high retention</p>
+                </div>
+              </button>
+            </div>
+            <button
+              onClick={() => navigate("/")}
+              className="w-full text-center text-xs text-muted-foreground hover:text-foreground py-2"
+            >
+              Skip for now
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -299,14 +447,29 @@ interface FieldProps {
   inputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
-function Field({ id, label, icon, type, value, onChange, placeholder, autoComplete, inputRef }: FieldProps) {
+function Field({
+  id,
+  label,
+  icon,
+  type,
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+  inputRef,
+}: FieldProps) {
   return (
     <div>
-      <label htmlFor={id} className="block text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground dark:text-muted-foreground mb-1">
+      <label
+        htmlFor={id}
+        className="block text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground dark:text-muted-foreground mb-1"
+      >
         {label}
       </label>
       <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{icon}</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+          {icon}
+        </span>
         <input
           id={id}
           ref={inputRef}

@@ -124,6 +124,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   /* Core palette — dark: blue-slate, clear layer separation */
   --background: 220 18% 8%;
   --foreground: 0 0% 96%;
@@ -308,4 +309,12 @@ body {
 
 .copy-pulse {
   animation: copy-pulse 250ms ease-out;
+}
+
+/* Force dark mode on native form controls inside .dark */
+.dark select,
+.dark option {
+  color-scheme: dark;
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
 }

@@ -21,6 +21,17 @@ export interface Device {
   snmpv3_priv_key: string | null;
 }
 
+export interface PollHistoryEntry {
+  id: string;
+  device_id: string;
+  status: string;
+  response_time_ms: number | null;
+  error: string | null;
+  polled_at: string;
+  ip_address?: string;
+  name?: string;
+}
+
 export interface Network {
   id: string;
   name: string;
@@ -39,13 +50,18 @@ export interface DiscoveryResult {
   scanned: number;
   found: number;
   added: number;
+  updated: number;
+  preserved: number;
+  marked_offline: number;
+  stale: number;
   cleared?: number;
-  by_method: Record<string, number>;
+  by_method?: Record<string, number>;
 }
 
 export interface TopologyNode {
   id: string;
   device_id: string;
+  network_id?: string;
   label: string;
   node_type: string;
   status: 'online' | 'offline' | 'unknown';
@@ -102,6 +118,8 @@ export interface AlertConfig {
   config_json: Record<string, any>;
   integration_id: string | null;
   enabled: boolean;
+  escalation_minutes: number | null;
+  escalated_severity: string | null;
   created: string;
 }
 
@@ -143,11 +161,18 @@ export const devicesApi = {
   delete: (id: string) => apiClient.delete(`/api/devices/${id}`),
   clearAll: () => apiClient.delete<{ status: string; removed: number }>('/api/devices'),
   clearMocks: () => apiClient.post<{ status: string; matched: number; removed: number }>('/api/devices/clear-mocks'),
-  rescan: (data: { network_range: string; community?: string; method?: string; replace?: boolean }) =>
+  rescan: (data: {
+    network_range: string;
+    community?: string;
+    method?: string;
+    mode?: 'merge' | 'replace';
+  }) =>
     apiClient.post<DiscoveryResult>('/api/discover/rescan', data, { timeout: 120000 }),
   discover: (data: { network_range: string; community?: string; method?: string }) =>
     apiClient.post<DiscoveryResult>('/api/discover', data, { timeout: 60000 }),
   getEventsStreamUrl: () => `${import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || '')}/api/events/stream`,
+  history: (deviceId: string, limit?: number) =>
+    apiClient.get<{ device_id: string; history: PollHistoryEntry[] }>(`/api/devices/${deviceId}/history`, { params: { limit } }),
 };
 
 // Topology API
@@ -271,4 +296,72 @@ export const healthApi = {
   stats: () => apiClient.get('/api/stats'),
   pollHistory: (limit?: number) =>
     apiClient.get('/api/poll-history', { params: { limit } }),
+};
+
+// Config API — environment profile, discovery intervals, retention, traps
+export interface EnvironmentProfileInfo {
+  name: string;
+  description: string;
+  is_default: boolean;
+  settings: {
+    topology_interval: number;
+    discovery_full_interval: number;
+    discovery_incremental_interval: number;
+    check_intervals: Record<string, number>;
+    poll_history_retention_days: number;
+  };
+}
+
+export interface EnvironmentProfileDetail {
+  name: string;
+  description: string;
+  settings: {
+    discovery_full_interval: number;
+    discovery_incremental_interval: number;
+    poll_history_retention_days: number;
+    topology_history_retention_days: number;
+    check_intervals: Record<string, number>;
+  };
+}
+
+export interface TrapConfig {
+  enabled: boolean;
+  bind_host: string;
+  port: number;
+  community: string;
+  destination_ip: string;
+  listener_running: boolean;
+}
+
+export const configApi = {
+  get: () => apiClient.get<Record<string, any>>('/api/config'),
+  update: (data: Record<string, any>) =>
+    apiClient.put<Record<string, any>>('/api/config', data),
+  profiles: () =>
+    apiClient.get<{
+      profiles: EnvironmentProfileInfo[];
+      active_profile: string;
+      detected_profile: string;
+      is_guessed: boolean;
+    }>('/api/config/profiles'),
+  setProfile: (name: string, confirmed = true) =>
+    apiClient.put<{ status: string; profile: string }>('/api/config/profile', {
+      profile: name,
+      confirmado: confirmed,
+    }),
+  checkDefaults: () =>
+    apiClient.get<{ check_intervals: Record<string, number> }>('/api/checks/defaults'),
+  traps: () => apiClient.get<TrapConfig>('/api/config/traps'),
+  setTraps: (data: { enabled?: boolean; bind_host?: string; port?: number; community?: string; destination_ip?: string }) =>
+    apiClient.put<TrapConfig>('/api/config/traps', data),
+};
+
+export const discoveryApi = {
+  rescan: (data: { network_range?: string; community?: string; mode?: 'merge' | 'replace' }) =>
+    apiClient.post<DiscoveryResult>('/api/discover/rescan', data, { timeout: 120000 }),
+  staleAction: (id: string, action: 'delete' | 'keep') =>
+    apiClient.post<{ status: string; device_id: string; action: string }>(
+      `/api/devices/${id}/stale-action`,
+      { action }
+    ),
 };
