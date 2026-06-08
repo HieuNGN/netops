@@ -85,6 +85,17 @@ config/
 # --- Docs (internal plans) ---
 docs/
 
+# --- IDE state ---
+.obsidian/
+
+# --- Plans & scratch ---
+plan/
+PROGRESS.md
+
+# --- Opencode config (user-local) ---
+opencode.json
+opencode.jsonc
+
 # --- Misc build artifacts ---
 .mypy_cache/
 .ruff_cache/
