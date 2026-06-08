@@ -265,9 +265,97 @@ class AlertService:
                 "message": alert["message"],
                 "status": alert["status"],
                 "fired_at": alert["fired_at"],
+                "escalated": alert.get("escalated", False),
             }
             for key, alert in self._active_alerts.items()
         ]
+
+    async def check_escalations(self) -> dict[str, int]:
+        """Check for alerts that need escalation and escalate them.
+        
+        Returns stats: {"escalated": N, "failed": N}
+        """
+        import time
+        stats = {"escalated": 0, "failed": 0}
+        
+        if not await self.has_working_channel():
+            return stats
+        
+        alert_configs = await self.db_client.list_alert_configs()
+        if not alert_configs:
+            return stats
+        
+        now = time.time()
+        
+        for key, alert in list(self._active_alerts.items()):
+            if alert["status"] != "firing":
+                continue
+            if alert.get("escalated"):
+                continue
+            
+            fired_at = alert.get("fired_at", 0)
+            age_minutes = (now - fired_at) / 60
+            
+            for config in alert_configs:
+                if config.get("alert_type") != alert["alert_type"]:
+                    continue
+                
+                escalation_minutes = config.get("escalation_minutes")
+                escalated_severity = config.get("escalated_severity")
+                
+                if not escalation_minutes or not escalated_severity:
+                    continue
+                
+                if age_minutes < escalation_minutes:
+                    continue
+                
+                channel = await self.get_notification_channel(
+                    config.get("channel", "webhook"),
+                    config.get("config_json", {}),
+                    integration_id=config.get("integration_id"),
+                )
+                
+                if not channel:
+                    stats["failed"] += 1
+                    continue
+                
+                valid, error = channel.validate_config()
+                if not valid:
+                    stats["failed"] += 1
+                    continue
+                
+                escalated_alert = {
+                    **alert,
+                    "severity": escalated_severity,
+                    "title": f"[ESCALATED] {alert['title']}",
+                    "message": f"{alert['message']} (escalated after {int(age_minutes)} minutes)",
+                }
+                
+                message = NotificationMessage(
+                    title=escalated_alert["title"],
+                    message=escalated_alert["message"],
+                    severity=escalated_severity,
+                    alert_type=alert["alert_type"],
+                    metadata=escalated_alert,
+                )
+                
+                try:
+                    if config.get("channel", "").lower() == "email":
+                        success = channel.send(message)
+                    else:
+                        success = await channel.send(message)
+                    
+                    if success:
+                        stats["escalated"] += 1
+                        alert["escalated"] = True
+                        alert["severity"] = escalated_severity
+                        await self._record_alert(config.get("id"), escalated_alert)
+                    else:
+                        stats["failed"] += 1
+                except Exception:
+                    stats["failed"] += 1
+        
+        return stats
 
     def acknowledge_alert(self, alert_key: str) -> bool:
         """Acknowledge an active alert to suppress repeated notifications."""
