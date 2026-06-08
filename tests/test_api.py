@@ -1,5 +1,9 @@
 """Integration tests for NetOps API endpoints."""
 
+import os
+
+os.environ.setdefault("JWT_SECRET", "test-api-secret")
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -8,7 +12,38 @@ from asgi_lifespan import LifespanManager
 
 @pytest_asyncio.fixture(scope="function")
 async def client():
-    """Create async test client for FastAPI app with lifespan events."""
+    """Create async test client for FastAPI app with lifespan events.
+
+    Auto-authenticates as admin/admin (the seeded bootstrap user) so
+    mutating endpoints introduced in Phase 1+2+4 work without per-test
+    login boilerplate. Tests that need an unauthenticated client should
+    use the `unauth_client` fixture.
+    """
+    from src.collector.main import app
+
+    async with LifespanManager(app) as manager:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            # Authenticate once per test; copy the token into default headers
+            try:
+                resp = await ac.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+                if resp.status_code == 200:
+                    token = resp.json().get("token") or resp.json().get("access_token")
+                    if token:
+                        ac.headers["Authorization"] = f"Bearer {token}"
+            except Exception:
+                # Auth not yet seeded or login endpoint missing; tests that
+                # need auth will fail and surface the issue.
+                pass
+            yield ac
+
+
+@pytest_asyncio.fixture(scope="function")
+async def unauth_client():
+    """Like `client` but without an Authorization header.
+
+    Use this for tests that explicitly exercise the auth contract
+    (e.g. asserting 401 on protected endpoints).
+    """
     from src.collector.main import app
 
     async with LifespanManager(app) as manager:

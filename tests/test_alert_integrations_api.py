@@ -14,19 +14,15 @@ from asgi_lifespan import LifespanManager
 
 @pytest_asyncio.fixture(scope="function")
 async def client():
-    # Isolated SQLite per test — stops data from leaking into ./data/netops.db
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    os.environ["NETOPS_SQLITE_PATH"] = tmp.name
+    from src.api.services.auth import create_access_token
+    token = create_access_token("admin")
 
     from src.collector.main import app
 
-    try:
-        async with LifespanManager(app) as manager:
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-                yield ac
-    finally:
-        os.unlink(tmp.name)
+    async with LifespanManager(app) as manager:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            ac.headers["Authorization"] = f"Bearer {token}"
+            yield ac
 
 
 def _uniq_name(prefix: str) -> str:

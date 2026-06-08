@@ -86,7 +86,8 @@ class TestSNMPPoller:
         assert poller.stats.successful_polls == 1
         assert poller.stats.failed_polls == 0
         mock_db.update_device.assert_called_with(
-            "dev1", {"status": "online", "sys_descr": "Cisco IOS", "last_polled": ANY}
+            "dev1",
+            {"status": "online", "sys_descr": "Cisco IOS", "last_polled": ANY, "offline_since": None},
         )
 
     @pytest.mark.asyncio
@@ -101,9 +102,67 @@ class TestSNMPPoller:
         assert poller.stats.total_polls == 1
         assert poller.stats.successful_polls == 0
         assert poller.stats.failed_polls == 1
-        mock_db.update_device.assert_called_with(
-            "dev1", {"status": "offline", "last_polled": ANY}
-        )
+        call = mock_db.update_device.call_args
+        assert call[0][0] == "dev1"
+        assert call[0][1]["status"] == "offline"
+        assert "offline_since" in call[0][1]
+        assert call[0][1]["offline_since"] is not None
+
+    @pytest.mark.asyncio
+    async def test_status_change_handler_invoked(self, poller, mock_db):
+        handler = AsyncMock()
+        poller.set_status_change_handler(handler)
+        mock_db.list_devices.return_value = [
+            {"id": "dev1", "ip_address": "192.168.1.1", "name": "Router-1", "community": "public"}
+        ]
+        with patch("src.collector.snmp_poller.get_sys_descr_async", AsyncMock(return_value="Cisco IOS")):
+            with patch("src.collector.snmp_poller.walk_lldp_neighbors_async", AsyncMock(return_value=[])):
+                await poller._poll_all_devices()
+        handler.assert_called_once()
+        evt = handler.call_args[0][0]
+        assert evt["device_id"] == "dev1"
+        assert evt["new_status"] == "online"
+        assert evt["old_status"] is None
+
+    @pytest.mark.asyncio
+    async def test_status_change_handler_no_emit_on_repeat(self, poller, mock_db):
+        handler = AsyncMock()
+        poller.set_status_change_handler(handler)
+        mock_db.list_devices.return_value = [
+            {"id": "dev1", "ip_address": "192.168.1.1", "name": "Router-1", "community": "public"}
+        ]
+        with patch("src.collector.snmp_poller.get_sys_descr_async", AsyncMock(return_value="Cisco IOS")):
+            with patch("src.collector.snmp_poller.walk_lldp_neighbors_async", AsyncMock(return_value=[])):
+                await poller._poll_all_devices()
+                await poller._poll_all_devices()
+        assert handler.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_poller_survives_add_poll_result_failure(self, poller, mock_db):
+        """If add_poll_result raises, the poller must not crash the loop."""
+        mock_db.list_devices.return_value = [
+            {"id": "dev1", "ip_address": "192.168.1.1", "name": "Router-1", "community": "public"},
+            {"id": "dev2", "ip_address": "192.168.1.2", "name": "Router-2", "community": "public"},
+        ]
+        mock_db.add_poll_result = AsyncMock(side_effect=RuntimeError("DB locked"))
+        with patch("src.collector.snmp_poller.get_sys_descr_async", AsyncMock(return_value="Cisco IOS")):
+            with patch("src.collector.snmp_poller.walk_lldp_neighbors_async", AsyncMock(return_value=[])):
+                await poller._poll_all_devices()
+        assert poller.stats.total_polls == 2
+        assert poller.stats.successful_polls == 2
+
+    @pytest.mark.asyncio
+    async def test_poller_survives_upsert_topology_failure(self, poller, mock_db):
+        """If upsert_topology raises, the poller must not crash the loop."""
+        mock_db.list_devices.return_value = [
+            {"id": "dev1", "ip_address": "192.168.1.1", "name": "Router-1", "community": "public"}
+        ]
+        mock_db.upsert_topology = AsyncMock(side_effect=RuntimeError("DB locked"))
+        with patch("src.collector.snmp_poller.get_sys_descr_async", AsyncMock(return_value="Cisco IOS")):
+            with patch("src.collector.snmp_poller.walk_lldp_neighbors_async", AsyncMock(return_value=[])):
+                await poller._poll_all_devices()
+        assert poller.stats.total_polls == 1
+        assert poller.stats.successful_polls == 1
 
     @pytest.mark.asyncio
     async def test_topology_change_detection(self, poller, mock_db):

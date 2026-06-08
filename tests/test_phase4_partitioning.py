@@ -42,9 +42,7 @@ def test_migrations_010_and_011_apply_on_sqlite():
             os.path.join(_PROJECT_ROOT, "src", "storage", "migrations"),
         )
         config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{db_path}")
-        # Upgrade all the way to head (which now includes 010 and 011).
         command.upgrade(config, "head")
-        # Verify current revision is the latest.
         from alembic.runtime.migration import MigrationContext
         from sqlalchemy import create_engine
         eng = create_engine(f"sqlite:///{db_path}")
@@ -52,9 +50,10 @@ def test_migrations_010_and_011_apply_on_sqlite():
             ctx = MigrationContext.configure(conn)
             current = ctx.get_current_revision()
         eng.dispose()
-        # 019 is the new head; on SQLite the chain ends at 019
-        # because the migrations still record themselves.
-        assert current == "019"
+        script_dir = config.get_main_option("script_location")
+        from alembic.script import ScriptDirectory
+        head_rev = ScriptDirectory.from_config(config).get_current_head()
+        assert current == head_rev
     finally:
         os.unlink(db_path)
 
