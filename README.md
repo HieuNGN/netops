@@ -4,7 +4,6 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.5-009688.svg)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://typescriptlang.org)
-[![Tests](https://img.shields.io/badge/tests-105%20passed-brightgreen.svg)](https://github.com)
 Network topology discovery, real-time monitoring, and management console — built for datacenter and homelab environments.
 
 ---
