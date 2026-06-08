@@ -221,6 +221,11 @@ netops/
 | Dynamic config | Done | settings → DB → poller read on startup |
 | SNMPv3 | Done | UsmUserData, auth/priv protocols, per-device version |
 | Bulk device import | Done | CSV/JSON upload + paste, parse + POST /devices/import |
+| Environment profiles | Done | homelab / small_business / datacenter with auto-detection |
+| Merge-based discovery | Done | non-destructive merge, stale device lifecycle (72h threshold) |
+| Per-type check intervals | Done | HTTP/TCP/DNS/Ping/SSL with profile-driven defaults |
+| SNMP trap listener | Done | UDP trap receiver, linkUp/linkDown events, SSE broadcast |
+| Cookie-only auth | Done | HttpOnly + SameSite=Strict + Secure cookies, Bearer fallback removed |
 | Distributed agents | Planned | remote pollers, central aggregator |
 
 ---
