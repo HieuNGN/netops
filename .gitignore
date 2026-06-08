@@ -1,71 +1,91 @@
-# Bytecode
+# --- Python ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyc
-
-# Virtual environment
+*.egg-info/
+dist/
+build/
+.eggs/
 .venv/
 venv/
 env/
 
-# Environment & secrets
-.env
-.env.*
-!.env.example
-web/.env
-web/.env.*
-
-# Database
-data/
-!data/.gitkeep
-
-# Node / frontend
+# --- Node / frontend ---
 node_modules/
 web/dist/
 web/build/
 *.tsbuildinfo
 
-# IDE & editor
-.claude/
-.obsidian/
+# --- Environment & secrets ---
+# NEVER commit real secrets. If you need an example, track .env.example explicitly
+# and keep it scrubbed of real keys/credentials.
+.env
+.env.*
+!.env.example
+
+# --- Keys & certificates ---
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.der
+*.csr
+id_rsa
+id_ed25519
+id_ecdsa
+
+# --- Database & storage ---
+data/
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+
+# --- IDE & editor ---
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# OS
+# --- OS ---
 .DS_Store
 Thumbs.db
 
-# Docs (internal plans)
-docs/
-
-# Python
-*.egg-info/
-dist/
-build/
-.eggs/
-.pytest_cache/
-
-# Logs
+# --- Logs & temp ---
 *.log
 logs/
+tmp/
+temp/
+/tmp/
 
-# Agent skills & local config
+# --- Test & coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+test-results/
+
+# --- Playwright ---
+playwright-report/
+playwright/.cache/
+
+# --- Agent & local config ---
 .agents/
 skills/
 skills-lock.json
 config/
-
-# Test artifacts
-test-results/
-playwright-report/
-playwright/.cache/
-
-# Temporary
-/tmp/
+.opencode/
 .opencode/agents/
 .playwright-mcp/
-.opencode/
+
+# --- Docs (internal plans) ---
+docs/
+
+# --- Misc build artifacts ---
+.mypy_cache/
+.ruff_cache/
+.tox/
