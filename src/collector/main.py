@@ -11,10 +11,19 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 from pydantic import BaseModel, Field, EmailStr, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .config import ServerConfig
-from .discovery import add_discovered_devices, rescan_and_replace
+from .discovery import (
+    add_discovered_devices,
+    rescan_and_replace,
+    rescan_and_merge,
+)
 from .host_detect import detect_host_network
+from .host_state import detect_and_compare, set_host_state
+from .network_watcher import NetworkWatcher
 from .snmp_poller import SNMPPoller
 from .topology_builder import TopologyBuilder
 from .utils import logger
@@ -27,6 +36,9 @@ METRICS_DEVICES = Gauge("netops_devices_total", "Total number of monitored devic
 METRICS_CHECKS = Gauge("netops_service_checks_total", "Total number of service checks")
 METRICS_ALERTS = Gauge("netops_alerts_total", "Total number of alert configurations")
 
+# Rate limiter for auth endpoints
+limiter = Limiter(key_func=get_remote_address)
+
 # Global state
 poller: Optional[SNMPPoller] = None
 check_scheduler: Optional[Any] = None
@@ -34,6 +46,12 @@ db_client: Optional[Any] = None
 alert_service: Optional[Any] = None
 topology_subscribers: list[asyncio.Queue] = []
 event_subscribers: list[asyncio.Queue] = []
+_startup_complete: bool = False
+
+
+def _get_trap_listener(app_obj) -> Optional["SNMPTrapListener"]:
+    """Return the app-scoped trap listener, if any."""
+    return getattr(app_obj.state, "trap_listener", None)
 
 
 async def broadcast_event(event_type: str, payload: dict[str, Any]) -> None:
@@ -53,9 +71,7 @@ async def lifespan(app: FastAPI):
     global poller, check_scheduler, db_client, alert_service
 
     # Startup
-    logger.info("Starting NetOps API server...")
-
-    # Auto-migrate: run Alembic upgrade head on startup (env-gated).
+    logger.info("Starting NetOps API server...")    # Auto-migrate: run Alembic upgrade head on startup (env-gated).
     # Default: enabled (1). Set NETOPS_AUTO_MIGRATE=0 to disable for
     # stricter change-control in production.
     auto_migrate = os.environ.get("NETOPS_AUTO_MIGRATE", "1") != "0"
@@ -73,11 +89,8 @@ async def lifespan(app: FastAPI):
 
     # Initialize database client.
     #
-    # Priority (Phase 3 contract):
-    #   1. `DATABASE_URL` env var -> PostgreSQL only, fail-fast on
-    #      connection error (silent fallback is dangerous in prod).
-    #   2. No DATABASE_URL -> try PG with POSTGRES_* defaults, then
-    #      fall back to SQLite (with a warning log).
+    # PostgreSQL is the primary backend. SQLite is available as an
+    # opt-in fallback for zero-dependency dev (NETOPS_USE_SQLITE=1).
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
         from src.storage.database import AsyncPostgresClient
@@ -87,25 +100,16 @@ async def lifespan(app: FastAPI):
             await db_client.init_db()
             logger.info("PostgreSQL connected via DATABASE_URL")
         except Exception as e:
-            logger.error(f"DATABASE_URL set but PostgreSQL unavailable: {e}")
+            logger.error(f"DATABASE_URL set but PostgreSQL unreachable: {e}")
             raise RuntimeError(
                 f"DATABASE_URL is set but PostgreSQL is unreachable: {e}"
             )
     else:
-        try:
-            from src.storage.database import AsyncPostgresClient
-            db_client = AsyncPostgresClient()
-            await db_client.connect()
-            await db_client.init_db()
-            logger.info("PostgreSQL connected with defaults")
-        except Exception as e:
-            logger.warning(f"PostgreSQL not available ({e}), falling back to SQLite")
-            from src.storage.sqlite_client import AsyncSQLiteClient
-            sqlite_path = os.environ.get("NETOPS_SQLITE_PATH", "./data/netops.db")
-            db_client = AsyncSQLiteClient(db_path=sqlite_path)
-            await db_client.connect()
-            await db_client.init_db()
-            logger.info(f"SQLite database initialized at {sqlite_path}")
+        from src.storage.database import AsyncPostgresClient
+        db_client = AsyncPostgresClient()
+        await db_client.connect()
+        await db_client.init_db()
+        logger.info("PostgreSQL connected with defaults")
 
     # Initialize alert service
     from src.api.services.alert_service import AlertService
@@ -117,8 +121,8 @@ async def lifespan(app: FastAPI):
     try:
         admin = await db_client.get_user_by_username("admin")
         if not admin:
-            await db_client.create_user("admin", hash_password("admin"))
-            logger.info("Default admin user created (admin / admin)")
+            await db_client.create_user("admin", hash_password("admin"), must_change_password=True)
+            logger.info("Default admin user created (admin / admin) - password change required on first login")
     except Exception as e:
         logger.warning(f"Failed to bootstrap admin user: {e}")
 
@@ -144,44 +148,235 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to maintain partitions: {e}")
 
-    # Read config from DB, fall back to defaults
-    config = {}
+    # Read config from DB, fall back to defaults. Phase 1 keys come
+    # from per-key app_settings rows; legacy keys come from the
+    # 'config' JSON blob.
+    config: dict = {}
     try:
         config = await db_client.get_settings()
     except Exception:
         pass
+    # Phase 1: pull per-key settings (overrides the legacy blob).
+    for k in (
+        "topology_interval", "discovery_full_interval",
+        "discovery_incremental_interval", "poll_history_retention_days",
+        "topology_history_retention_days", "check_intervals",
+    ):
+        if hasattr(db_client, "get_setting"):
+            try:
+                v = await db_client.get_setting(k)
+                if v is not None:
+                    config[k] = v
+            except Exception:
+                pass
 
     poll_interval = int(config.get("topology_interval", 30))
     snmp_timeout = int(config.get("snmp_timeout", 5))
     snmp_retries = int(config.get("snmp_retries", 3))
 
+    async def _on_status_change(change: dict[str, Any]) -> None:
+        event_type = (
+            "device_online" if change.get("new_status") == "online"
+            else "device_offline"
+        )
+        try:
+            await broadcast_event(event_type, {
+                "device_id": change.get("device_id"),
+                "ip_address": change.get("ip_address"),
+                "name": change.get("name", ""),
+                "old_status": change.get("old_status"),
+                "new_status": change.get("new_status"),
+                "error": change.get("error"),
+                "response_time_ms": change.get("response_time_ms", 0),
+            })
+        except Exception as e:
+            logger.warning(f"status change broadcast failed: {e}")
+
     # Initialize and start poller
     poller = SNMPPoller(db_client, poll_interval=poll_interval, timeout=snmp_timeout, retries=snmp_retries)
     poller.set_topology_change_handler(on_topology_change)
+    poller.set_status_change_handler(_on_status_change)
     await poller.start()
-    logger.info(f"SNMP poller started with {poll_interval}s interval, timeout={snmp_timeout}s, retries={snmp_retries}")
+    logger.info(f"SNMP poller started with {poll_interval}s interval, timeout={snmp_timeout}s, retries={snmp_retries}s")
 
     # Initialize and start service check scheduler
     from src.collector.checks.scheduler import CheckScheduler
 
     check_scheduler = CheckScheduler(db_client)
+    # Phase 2: apply per-type defaults if the user set them.
+    check_intervals = config.get("check_intervals")
+    if isinstance(check_intervals, dict):
+        check_scheduler.apply_check_intervals(check_intervals)
     check_scheduler.set_check_result_handler(on_check_result)
     await check_scheduler.start()
     logger.info("Service check scheduler initialized")
 
-    # Auto-discover: detect host network, wipe stale mocks, scan for real devices
+    async def escalation_loop():
+        """Check for alert escalations every 60 seconds."""
+        while True:
+            try:
+                await asyncio.sleep(60)
+                if alert_service:
+                    stats = await alert_service.check_escalations()
+                    if stats.get("escalated", 0) > 0:
+                        logger.info(f"Escalated {stats['escalated']} alerts")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Escalation loop error: {e}")
+    
+    escalation_task = asyncio.create_task(escalation_loop())
+
+    # Phase 4: start the SNMP trap listener if enabled.
+    try:
+        from .snmp_trap_listener import SNMPTrapListener
+        listener = SNMPTrapListener()
+        # Configure from app_settings.
+        if hasattr(db_client, "get_setting"):
+            bind_host = await db_client.get_setting("traps_bind_host", "0.0.0.0")
+            port = int(await db_client.get_setting("traps_port", 162) or 162)
+            community = await db_client.get_setting("traps_community", "public") or "public"
+            enabled = bool(await db_client.get_setting("traps_enabled", False))
+            listener.configure(bind_host=bind_host, port=port, community=community)
+
+        async def _on_trap(trap: dict) -> None:
+            """Trap handler: update device.last_polled + emit SSE event.
+
+            We don't have a full linkUp/linkDown topology model yet;
+            the current handler updates the source device's
+            `last_polled` timestamp and broadcasts a `trap_received`
+            SSE so the frontend can show live updates.
+            """
+            try:
+                if db_client is not None:
+                    device = await db_client.get_device(trap["source_ip"])
+                    if device:
+                        await db_client.update_device(
+                            device["id"],
+                            {"last_polled": trap["timestamp"]},
+                        )
+                await broadcast_event("trap_received", trap)
+                # Record in topology_history (if the helper exists)
+                if db_client is not None and hasattr(
+                    db_client, "record_topology_change"
+                ):
+                    try:
+                        await db_client.record_topology_change(
+                            event_type=f"trap_{trap['trap_type']}",
+                            source_ip=trap["source_ip"],
+                            details=trap,
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Trap handler error: {e}")
+
+        listener.set_trap_handler(_on_trap)
+        app.state.trap_listener = listener
+        # Only start if traps_enabled and the app state has a running
+        # loop. On bind failure (port 162 root-required), the
+        # listener logs and the app continues without traps.
+        enabled = bool(await db_client.get_setting("traps_enabled", False)) \
+            if hasattr(db_client, "get_setting") else False
+        if enabled:
+            started = await listener.start()
+            if started:
+                logger.info("SNMP trap listener active")
+        else:
+            logger.info("SNMP trap listener disabled (traps_enabled=false)")
+    except Exception as e:
+        logger.warning(f"Failed to set up trap listener: {e}")
+
+    network_watcher: Optional[NetworkWatcher] = None
+
+    async def _register_detected_network(detected: dict[str, Any]) -> None:
+        cidr = detected.get("cidr")
+        if not cidr or not hasattr(db_client, "list_networks"):
+            return
+        try:
+            existing_networks = await db_client.list_networks()
+        except Exception:
+            return
+        for n in existing_networks or []:
+            if n.get("cidr") == cidr:
+                return
+        try:
+            await db_client.create_network({
+                "name": f"Detected ({cidr})",
+                "cidr": cidr,
+                "description": "Auto-registered from host network detection",
+                "is_default": True,
+            })
+            logger.info(f"Registered detected network {cidr} as default")
+        except Exception as e:
+            logger.warning(f"create_network for detected CIDR failed: {e}")
+
+    async def _emit_profile_guess() -> None:
+        if not hasattr(db_client, "list_devices") or not hasattr(db_client, "set_setting"):
+            return
+        try:
+            from .config import EnvironmentProfile, detect_profile
+            current_profile = await db_client.get_setting("profile")
+            confirmed = await db_client.get_setting("profile_confirmed")
+            devices = await db_client.list_devices()
+            guessed = detect_profile(len(devices))
+            guessed_str = guessed.value
+            if current_profile != guessed_str:
+                await db_client.set_setting("profile_guess", guessed_str)
+            await broadcast_event(
+                "profile_guessed",
+                {
+                    "profile": guessed_str,
+                    "device_count": len(devices),
+                    "confirmed": bool(confirmed),
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Profile guess failed: {e}")
+
     async def _startup_auto_discover():
         try:
-            host_info = await detect_host_network()
-            host_ip = host_info.get("host_ip")
-            cidr = host_info.get("cidr", "192.168.1.0/24")
-            hostname = host_info.get("hostname") or "Current Device"
-            gateway = host_info.get("gateway")
+            snap = await detect_and_compare(db_client)
+            detected = snap.get("detected", {}) or {}
+            previous = snap.get("previous", {}) or {}
+            changed = bool(snap.get("changed"))
+            first_seen = bool(snap.get("first_seen"))
 
-            logger.info(f"Host detected: {hostname} @ {host_ip}, CIDR {cidr}, gateway {gateway}")
+            host_ip = detected.get("host_ip")
+            cidr = detected.get("cidr", "192.168.1.0/24")
+            hostname = detected.get("hostname") or "Current Device"
+            gateway = detected.get("gateway")
 
-            # Wipe stale mock/simulated devices and orphan topology
-            existing = await db_client.list_devices()
+            logger.info(
+                f"Host detected: {hostname} @ {host_ip}, CIDR {cidr}, "
+                f"gateway={gateway}, first_seen={first_seen}, changed={changed}, "
+                f"prev_cidr={previous.get('host_cidr')}"
+            )
+
+            mode = os.environ.get("NETOPS_AUTO_DISCOVER_MODE", "merge").lower()
+            if mode not in ("merge", "replace"):
+                mode = "merge"
+
+            should_scan = changed or first_seen
+
+            if should_scan and changed:
+                await broadcast_event("network_changed", {
+                    "old_cidr": previous.get("host_cidr"),
+                    "old_gateway": previous.get("host_gateway"),
+                    "new_cidr": cidr,
+                    "new_gateway": gateway,
+                    "source": "startup",
+                })
+
+            if not should_scan:
+                logger.info(
+                    f"Network unchanged (fingerprint={snap.get('fingerprint')}); "
+                    "skipping auto-discover"
+                )
+                await _emit_profile_guess()
+                return
+
+            existing = await db_client.list_devices() if hasattr(db_client, "list_devices") else []
             mock_ids = []
             for d in existing:
                 method = (d.get("discovery_method") or "").lower()
@@ -197,62 +392,151 @@ async def lifespan(app: FastAPI):
                 removed = await db_client.bulk_delete_devices(mock_ids)
                 logger.info(f"Auto-removed {removed} stale mock devices on startup")
 
-            # Ensure host device exists in DB
-            if host_ip:
+            if host_ip and hasattr(db_client, "get_device"):
                 existing_host = await db_client.get_device(host_ip)
                 if not existing_host:
-                    await db_client.create_device({
-                        "ip_address": host_ip,
-                        "name": hostname,
-                        "status": "online",
-                        "discovery_method": "auto",
-                        "sys_descr": f"NetOps host ({hostname})",
-                    })
-                    logger.info(f"Registered host device {hostname} ({host_ip})")
+                    try:
+                        await db_client.create_device({
+                            "ip_address": host_ip,
+                            "name": hostname,
+                            "status": "online",
+                            "discovery_method": "auto",
+                            "sys_descr": f"NetOps host ({hostname})",
+                        })
+                        logger.info(f"Registered host device {hostname} ({host_ip})")
+                    except Exception as e:
+                        logger.warning(f"Register host failed: {e}")
 
-            # Fire background rescan on detected CIDR
-            await broadcast_event("rescan_started", {"network_range": cidr, "source": "startup"})
-            stats = await rescan_and_replace(db_client, cidr, timeout=2.0, max_concurrent=50, method="all")
-            logger.info(f"Auto-rescan {cidr}: found {stats.get('found', 0)}, added {stats.get('added', 0)}")
+            await broadcast_event("rescan_started", {
+                "network_range": cidr, "source": "startup", "mode": mode,
+            })
 
-            # Re-register host after rescan (rescan wipes all devices)
-            if host_ip:
+            async def _stale_emitter(payload: dict) -> None:
+                await broadcast_event("device_stale", payload)
+
+            if mode == "replace":
+                stats = await rescan_and_replace(
+                    db_client, cidr, timeout=2.0, max_concurrent=50, method="all",
+                )
+            else:
+                stats = await rescan_and_merge(
+                    db_client, cidr, timeout=2.0, max_concurrent=50, method="all",
+                    preserve_manual=True,
+                    stale_event_emitter=_stale_emitter,
+                )
+            logger.info(
+                f"Auto-rescan {cidr} (mode={mode}): "
+                f"found={stats.get('found', 0)}, added={stats.get('added', 0)}, "
+                f"updated={stats.get('updated', 0)}, marked_offline={stats.get('marked_offline', 0)}"
+            )
+
+            if host_ip and hasattr(db_client, "get_device"):
                 existing_host = await db_client.get_device(host_ip)
                 if not existing_host:
-                    await db_client.create_device({
-                        "ip_address": host_ip,
-                        "name": hostname,
-                        "status": "online",
-                        "discovery_method": "auto",
-                        "sys_descr": f"NetOps host ({hostname})",
-                    })
+                    try:
+                        await db_client.create_device({
+                            "ip_address": host_ip,
+                            "name": hostname,
+                            "status": "online",
+                            "discovery_method": "auto",
+                            "sys_descr": f"NetOps host ({hostname})",
+                        })
+                    except Exception:
+                        pass
 
-            # Add gateway if discovered but missing
             if gateway:
-                gw_existing = await db_client.get_device(gateway)
-                if not gw_existing:
-                    await db_client.create_device({
-                        "ip_address": gateway,
-                        "name": f"Gateway ({gateway})",
-                        "status": "online",
-                        "discovery_method": "auto",
-                        "sys_descr": "Default gateway",
-                    })
+                try:
+                    gw_existing = await db_client.get_device(gateway)
+                    if not gw_existing:
+                        await db_client.create_device({
+                            "ip_address": gateway,
+                            "name": f"Gateway ({gateway})",
+                            "status": "online",
+                            "discovery_method": "auto",
+                            "sys_descr": "Default gateway",
+                        })
+                except Exception as e:
+                    logger.warning(f"Register gateway failed: {e}")
 
-            await broadcast_event("devices_refresh", {"stats": stats, "source": "startup_auto"})
+            await _register_detected_network(detected)
+            await set_host_state(db_client, cidr, gateway)
+
+            await broadcast_event("devices_refresh", {
+                "stats": stats, "source": "startup_auto", "mode": mode,
+            })
+            await _emit_profile_guess()
         except Exception as e:
             logger.warning(f"Startup auto-discover failed: {e}")
 
     asyncio.create_task(_startup_auto_discover())
 
+    async def _watcher_on_change(snap: dict[str, Any]) -> None:
+        detected = snap.get("detected", {}) or {}
+        previous = snap.get("previous", {}) or {}
+        cidr = detected.get("cidr")
+        gateway = detected.get("gateway")
+        if not cidr:
+            return
+        await broadcast_event("network_changed", {
+            "old_cidr": previous.get("host_cidr"),
+            "old_gateway": previous.get("host_gateway"),
+            "new_cidr": cidr,
+            "new_gateway": gateway,
+            "source": "watcher",
+        })
+        await _register_detected_network(detected)
+
+        async def _run_rescan():
+            try:
+                async def _stale_emitter(payload: dict) -> None:
+                    await broadcast_event("device_stale", payload)
+                await broadcast_event("rescan_started", {
+                    "network_range": cidr, "source": "watcher", "mode": "merge",
+                })
+                stats = await rescan_and_merge(
+                    db_client, cidr, timeout=2.0, max_concurrent=50, method="all",
+                    preserve_manual=True,
+                    stale_event_emitter=_stale_emitter,
+                )
+                await broadcast_event("devices_refresh", {
+                    "stats": stats, "source": "network_watcher", "cidr": cidr,
+                })
+            except Exception as e:
+                logger.warning(f"Watcher rescan failed: {e}")
+
+        asyncio.create_task(_run_rescan())
+
+    network_watcher = NetworkWatcher(db_client, _watcher_on_change)
+    app.state.network_watcher = network_watcher
+    await network_watcher.start()
+
+    _startup_complete = True
+    logger.info("Startup complete — server ready")
+
     yield
 
-    # Shutdown
     logger.info("Shutting down NetOps API server...")
+    if network_watcher is not None:
+        try:
+            await network_watcher.stop()
+        except Exception:
+            pass
     if poller:
         await poller.stop()
     if check_scheduler:
         await check_scheduler.stop()
+    if 'escalation_task' in locals():
+        escalation_task.cancel()
+        try:
+            await escalation_task
+        except asyncio.CancelledError:
+            pass
+    listener = getattr(app.state, "trap_listener", None)
+    if listener is not None:
+        try:
+            await listener.stop()
+        except Exception:
+            pass
     if db_client:
         await db_client.close()
 
@@ -324,6 +608,8 @@ class AlertConfigCreate(BaseModel):
     config: dict[str, Any] = {}
     integration_id: Optional[str] = None
     enabled: bool = True
+    escalation_minutes: Optional[int] = Field(None, description="Minutes before auto-escalate (null = disabled)")
+    escalated_severity: Optional[str] = Field(None, description="Severity to escalate to (e.g., 'critical')")
 
     def model_validate(self, values):
         """Validate channel is supported."""
@@ -340,6 +626,8 @@ class AlertConfigUpdate(BaseModel):
     config: Optional[dict[str, Any]] = None
     integration_id: Optional[str] = None
     enabled: Optional[bool] = None
+    escalation_minutes: Optional[int] = None
+    escalated_severity: Optional[str] = None
 
 
 class IntegrationCreate(BaseModel):
@@ -390,16 +678,47 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Health endpoint
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    result = {"status": "ok"}
+    result = {"status": "ok", "startup_complete": _startup_complete}
     if poller:
         result["poller"] = poller.get_stats()
     if alert_service:
         result["alert_service"] = {"initialized": True}
+    watcher = getattr(app.state, "network_watcher", None)
+    if watcher is not None:
+        result["watcher"] = watcher.get_status()
     return result
+
+
+
+# Readiness endpoint — returns 503 until startup is fully complete.
+# The FE uses this to gate API calls and avoid spurious errors during
+# the initial boot (auto-discover, PG connection, migrations).
+@app.get("/api/health/ready")
+async def readiness_check():
+    if not _startup_complete or not db_client:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "starting", "startup_complete": _startup_complete},
+            headers={"Retry-After": "2"},
+        )
+    db_ok = False
+    try:
+        hc = await db_client.healthcheck()
+        db_ok = hc.get("status") == "connected"
+    except Exception:
+        pass
+    return {
+        "status": "ready" if db_ok else "degraded",
+        "startup_complete": _startup_complete,
+        "db_connected": db_ok,
+    }
 
 
 # Database health endpoint (Phase 3 spec). Returns the active
@@ -431,8 +750,13 @@ async def db_health_check():
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class SignupRequest(BaseModel):
@@ -465,28 +789,76 @@ class SignupRequest(BaseModel):
 
 
 class ConfigUpdate(BaseModel):
+    # Legacy fields (kept for backward compat).
     topology_interval: Optional[int] = None
     check_interval: Optional[int] = None
     snmp_timeout: Optional[int] = None
     snmp_retries: Optional[int] = None
     snmp_community: Optional[str] = None
+    # Phase 1 fields.
+    profile: Optional[str] = None
+    discovery_full_interval: Optional[int] = None
+    discovery_incremental_interval: Optional[int] = None
+    poll_history_retention_days: Optional[int] = None
+    topology_history_retention_days: Optional[int] = None
+    # Phase 4 trap config.
+    traps_enabled: Optional[bool] = None
+    traps_bind_host: Optional[str] = None
+    traps_port: Optional[int] = None
+    traps_community: Optional[str] = None
+    traps_destination_ip: Optional[str] = None
+
+
+class ProfileRequest(BaseModel):
+    profile: str
+    confirmado: bool = False
+
+
+class StaleActionRequest(BaseModel):
+    action: str  # "delete" | "keep"
+
+
+class TrapConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    bind_host: Optional[str] = None
+    port: Optional[int] = None
+    community: Optional[str] = None
+    destination_ip: Optional[str] = None
+
+
+VALID_PROFILES = {"homelab", "small_business", "datacenter"}
 
 
 @app.post("/api/auth/login")
-async def auth_login(req: LoginRequest):
+@limiter.limit("5/minute")
+async def auth_login(request: Request, req: LoginRequest):
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
     user = await db_client.get_user_by_username(req.username)
     if not user or not verify_password(req.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token(req.username)
-    resp = JSONResponse({"token": token, "username": req.username, "role": user.get("role", "admin")})
-    resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400)
+    resp = JSONResponse({
+        "username": req.username,
+        "role": user.get("role", "admin"),
+        "must_change_password": user.get("must_change_password", False),
+    })
+    cookie_secure = os.environ.get("NETOPS_COOKIE_SECURE", "0") != "0"
+    resp.set_cookie(
+        "token",
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure,
+        path="/",
+        max_age=86400,
+    )
     return resp
 
 
 @app.post("/api/auth/signup", status_code=201)
-async def auth_signup(req: SignupRequest):
+@limiter.limit("3/minute")
+async def auth_signup(request: Request, req: SignupRequest):
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
     if await db_client.get_user_by_username(req.username):
@@ -500,14 +872,21 @@ async def auth_signup(req: SignupRequest):
     resp = JSONResponse(
         status_code=201,
         content={
-            "token": token,
             "username": user["username"],
             "name": user.get("name"),
             "email": user.get("email"),
             "role": user.get("role", "admin"),
         },
     )
-    resp.set_cookie("token", token, httponly=True, samesite="lax", max_age=86400)
+    resp.set_cookie(
+        "token",
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=os.environ.get("NETOPS_COOKIE_SECURE", "0") != "0",
+        path="/",
+        max_age=86400,
+    )
     return resp
 
 
@@ -526,6 +905,34 @@ async def auth_me(user: str = Depends(need_auth)):
     return {"username": user, "authenticated": True}
 
 
+@app.post("/api/auth/logout")
+async def auth_logout():
+    resp = JSONResponse({"logged_out": True})
+    resp.delete_cookie("token")
+    return resp
+
+
+@app.post("/api/auth/change-password")
+@limiter.limit("3/minute")
+async def auth_change_password(request: Request, req: PasswordChangeRequest, user: str = Depends(need_auth)):
+    """Change user password. Clears must_change_password flag."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    
+    # Verify current password
+    user_data = await db_client.get_user_by_username(user)
+    if not user_data or not verify_password(req.current_password, user_data["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    
+    # Update password
+    new_hash = hash_password(req.new_password)
+    success = await db_client.update_user_password(user, new_hash)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update password")
+    
+    return {"status": "password_changed", "must_change_password": False}
+
+
 @app.get("/api/config")
 async def get_config(user: str = Depends(need_auth)):
     if not db_client:
@@ -537,13 +944,263 @@ async def get_config(user: str = Depends(need_auth)):
 async def save_config(cfg: ConfigUpdate, user: str = Depends(need_auth)):
     if not db_client:
         raise HTTPException(status_code=503)
+    # The legacy 'config' JSON blob — kept for backward compat.
     existing = await db_client.get_settings()
-    for key in ("topology_interval", "check_interval", "snmp_timeout", "snmp_retries", "snmp_community"):
+    for key in (
+        "topology_interval", "check_interval",
+        "snmp_timeout", "snmp_retries", "snmp_community",
+    ):
         v = getattr(cfg, key, None)
         if v is not None:
             existing[key] = v
     await db_client.update_settings(existing)
+
+    # Phase 1+ per-key settings (each row in app_settings).
+    per_key = {
+        "profile": cfg.profile,
+        "discovery_full_interval": cfg.discovery_full_interval,
+        "discovery_incremental_interval": cfg.discovery_incremental_interval,
+        "poll_history_retention_days": cfg.poll_history_retention_days,
+        "topology_history_retention_days": cfg.topology_history_retention_days,
+        "traps_enabled": cfg.traps_enabled,
+        "traps_bind_host": cfg.traps_bind_host,
+        "traps_port": cfg.traps_port,
+        "traps_community": cfg.traps_community,
+        "traps_destination_ip": cfg.traps_destination_ip,
+    }
+    for k, v in per_key.items():
+        if v is not None:
+            await db_client.set_setting(k, v)
     return {"saved": True, "config": existing}
+
+
+@app.get("/api/config/profiles")
+async def list_profiles():
+    """Return all profiles + active/detected for the FE EnvironmentProfileCard.
+
+    Shape:
+      {
+        profiles: [{name, description, is_default, settings: {...}}, ...],
+        active_profile: "homelab" | "small_business" | "datacenter",
+        detected_profile: "...",
+        is_guessed: bool,
+      }
+    """
+    from .config import ENVIRONMENT_PROFILES, EnvironmentProfile
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    profiles = []
+    for p, defaults in ENVIRONMENT_PROFILES.items():
+        profiles.append({
+            "name": p.value,
+            "description": (
+                "Up to 15 devices. Polling every 30s, rescans every 6h."
+                if p == EnvironmentProfile.HOMELAB
+                else "Up to 80 devices. Polling every 60s, rescans every 2h."
+                if p == EnvironmentProfile.SMALL_BUSINESS
+                else "Unlimited devices. Polling every 60s, rescans every 1h."
+            ),
+            "is_default": p == EnvironmentProfile.HOMELAB,
+            "settings": {
+                "topology_interval": defaults["topology_interval"],
+                "discovery_full_interval": defaults["discovery_full_interval"],
+                "discovery_incremental_interval": defaults["discovery_incremental_interval"],
+                "check_intervals": defaults["check_intervals"],
+                "poll_history_retention_days": defaults["poll_history_retention_days"],
+            },
+        })
+    active = "homelab"
+    detected = "homelab"
+    is_guessed = False
+    if hasattr(db_client, "get_setting"):
+        try:
+            v = await db_client.get_setting("profile")
+            if isinstance(v, str) and v:
+                active = v
+        except Exception:
+            pass
+        try:
+            v = await db_client.get_setting("profile_guess")
+            detected = v if isinstance(v, str) and v else active
+        except Exception:
+            detected = active
+        try:
+            c = await db_client.get_setting("profile_confirmed")
+            is_guessed = not c
+        except Exception:
+            is_guessed = True
+    return {
+        "profiles": profiles,
+        "active_profile": active,
+        "detected_profile": detected,
+        "is_guessed": is_guessed,
+    }
+
+
+@app.put("/api/config/profile")
+async def set_profile(req: ProfileRequest, user: str = Depends(need_auth)):
+    """Apply an environment profile. Resets all interval defaults.
+
+    `confirmado=True`: persist active profile + persist
+    `profile_confirmed=true` so the FE `is_guessed` flag clears.
+    `confirmado=False` (preview): update `profile_guess` only, do
+    not touch the active profile, return `applied=False`.
+    """
+    from .config import EnvironmentProfile, NetOpsConfig
+    if req.profile not in VALID_PROFILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid profile. Must be one of: {VALID_PROFILES}",
+        )
+    profile = EnvironmentProfile(req.profile)
+    cfg = NetOpsConfig.from_profile(profile)
+
+    if not req.confirmado:
+        if hasattr(db_client, "set_setting"):
+            try:
+                await db_client.set_setting("profile_guess", profile.value)
+            except Exception:
+                pass
+        return {
+            "saved": True,
+            "applied": False,
+            "profile": profile.value,
+            "is_guess": True,
+        }
+
+    await db_client.set_setting("profile", profile.value)
+    await db_client.set_setting("topology_interval", cfg.topology_interval)
+    await db_client.set_setting("discovery_full_interval", cfg.discovery_full_interval)
+    await db_client.set_setting(
+        "discovery_incremental_interval", cfg.discovery_incremental_interval
+    )
+    await db_client.set_setting("check_intervals", cfg.check_intervals)
+    await db_client.set_setting(
+        "poll_history_retention_days", cfg.poll_history_retention_days
+    )
+    if hasattr(db_client, "set_setting"):
+        try:
+            await db_client.set_setting("profile_confirmed", "true")
+        except Exception:
+            pass
+    if poller:
+        poller.poll_interval = cfg.topology_interval
+    if check_scheduler:
+        check_scheduler.apply_check_intervals(cfg.check_intervals)
+    return {
+        "saved": True,
+        "applied": True,
+        "profile": profile.value,
+        "is_guess": False,
+        "config": {
+            "topology_interval": cfg.topology_interval,
+            "discovery_full_interval": cfg.discovery_full_interval,
+            "discovery_incremental_interval": cfg.discovery_incremental_interval,
+            "check_intervals": cfg.check_intervals,
+            "poll_history_retention_days": cfg.poll_history_retention_days,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: SNMP trap configuration endpoints.
+# Trap config lives in app_settings keys (traps_enabled,
+# traps_bind_host, traps_port, traps_community, traps_destination_ip).
+# The actual UDP listener is managed by the lifespan handler.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/config/traps")
+async def get_trap_config(user: str = Depends(need_auth)):
+    """Return current trap configuration."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    if not hasattr(db_client, "get_setting"):
+        raise HTTPException(status_code=501, detail="Backend does not support per-key settings")
+    keys = ("traps_enabled", "traps_bind_host", "traps_port",
+            "traps_community", "traps_destination_ip")
+    out: dict[str, Any] = {}
+    for k in keys:
+        v = await db_client.get_setting(k)
+        out[k.replace("traps_", "")] = v
+    # Reflect the runtime status of the listener, if any.
+    out["listener_running"] = bool(getattr(app.state, "trap_listener", None)) and bool(
+        getattr(app.state.trap_listener, "_running", False)
+    )
+    return out
+
+
+@app.put("/api/config/traps")
+async def set_trap_config(cfg: TrapConfigUpdate, user: str = Depends(need_auth)):
+    """Update trap configuration. Restarts the listener if running."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    if not hasattr(db_client, "set_setting"):
+        raise HTTPException(status_code=501, detail="Backend does not support per-key settings")
+    # Validate inputs. bind_host must be a valid IP literal or empty
+    # (which means "all interfaces" in inet_pton). port must be 1-65535.
+    # community and destination_ip are strings; we length-cap to prevent
+    # the config blob from getting out of hand.
+    import ipaddress as _ip
+    if cfg.bind_host is not None and cfg.bind_host != "":
+        try:
+            _ip.ip_address(cfg.bind_host)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"bind_host must be a valid IP address, got {cfg.bind_host!r}",
+            )
+    if cfg.port is not None and not (1 <= int(cfg.port) <= 65535):
+        raise HTTPException(
+            status_code=400,
+            detail=f"port must be in 1-65535, got {cfg.port}",
+        )
+    if cfg.community is not None and len(cfg.community) > 128:
+        raise HTTPException(
+            status_code=400,
+            detail="community must be <= 128 chars",
+        )
+    if cfg.destination_ip is not None and cfg.destination_ip != "":
+        try:
+            _ip.ip_address(cfg.destination_ip)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"destination_ip must be a valid IP address, got {cfg.destination_ip!r}",
+            )
+    if cfg.enabled is not None:
+        await db_client.set_setting("traps_enabled", bool(cfg.enabled))
+    if cfg.bind_host is not None:
+        await db_client.set_setting("traps_bind_host", cfg.bind_host)
+    if cfg.port is not None:
+        await db_client.set_setting("traps_port", int(cfg.port))
+    if cfg.community is not None:
+        await db_client.set_setting("traps_community", cfg.community)
+    if cfg.destination_ip is not None:
+        await db_client.set_setting("traps_destination_ip", cfg.destination_ip)
+    # Restart the listener with the new config (if any).
+    listener = getattr(app.state, "trap_listener", None)
+    if listener is not None:
+        try:
+            await listener.stop()
+        except Exception:
+            pass
+        try:
+            bind_host = await db_client.get_setting("traps_bind_host", "0.0.0.0")
+            port = int(await db_client.get_setting("traps_port", 162) or 162)
+            community = await db_client.get_setting("traps_community", "public") or "public"
+            listener.configure(bind_host=bind_host, port=port, community=community)
+            enabled = bool(await db_client.get_setting("traps_enabled", False))
+            if enabled:
+                started = await listener.start()
+                return {
+                    "saved": True,
+                    "listener_started": started,
+                    "bind_host": bind_host,
+                    "port": port,
+                }
+        except Exception as e:
+            logger.warning(f"Failed to restart trap listener: {e}")
+    return {"saved": True, "listener_running": False}
 
 
 @app.get("/metrics")
@@ -574,7 +1231,7 @@ async def metrics():
 
 # Topology endpoints
 @app.get("/topology")
-async def get_topology():
+async def get_topology(user: str = Depends(need_auth)):
     """Get current network topology."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -584,7 +1241,7 @@ async def get_topology():
 
 
 @app.get("/topology/stream")
-async def stream_topology(delta: bool = False):
+async def stream_topology(delta: bool = False, user: str = Depends(need_auth)):
     """Stream topology updates via Server-Sent Events.
 
     Args:
@@ -630,7 +1287,7 @@ async def stream_topology(delta: bool = False):
 
 
 @app.post("/topology/refresh")
-async def refresh_topology():
+async def refresh_topology(user: str = Depends(need_auth)):
     """Trigger an immediate topology poll."""
     if not poller:
         raise HTTPException(status_code=503, detail="Poller not initialized")
@@ -640,7 +1297,7 @@ async def refresh_topology():
 
 
 @app.post("/topology/simulate")
-async def simulate_topology():
+async def simulate_topology(user: str = Depends(need_auth)):
     """Generate simulated network topology for demo purposes."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -724,7 +1381,7 @@ async def simulate_topology():
 
 # Device endpoints
 @app.get("/devices")
-async def list_devices(limit: Optional[int] = None, offset: Optional[int] = None):
+async def list_devices(limit: Optional[int] = None, offset: Optional[int] = None, user: str = Depends(need_auth)):
     """List configured devices with optional pagination."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -733,7 +1390,7 @@ async def list_devices(limit: Optional[int] = None, offset: Optional[int] = None
 
 
 @app.get("/devices/{device_id}")
-async def get_device(device_id: str):
+async def get_device(device_id: str, user: str = Depends(need_auth)):
     """Get a specific device by ID or IP."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -745,8 +1402,22 @@ async def get_device(device_id: str):
     return device
 
 
+@app.get("/devices/{device_id}/history")
+async def get_device_history(device_id: str, limit: int = 100, user: str = Depends(need_auth)):
+    """Get poll history for a specific device."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+
+    device = await db_client.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    history = await db_client.get_device_poll_history(device_id, limit=limit)
+    return {"device_id": device_id, "history": history}
+
+
 @app.post("/devices")
-async def create_device(device: DeviceCreate):
+async def create_device(device: DeviceCreate, user: str = Depends(need_auth)):
     """Add a new device to monitor."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -759,7 +1430,7 @@ async def create_device(device: DeviceCreate):
 
 
 @app.post("/devices/import")
-async def bulk_import(req: BulkImportRequest):
+async def bulk_import(req: BulkImportRequest, user: str = Depends(need_auth)):
     """Bulk import devices from JSON/CSV."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -781,7 +1452,7 @@ async def bulk_import(req: BulkImportRequest):
 
 
 @app.put("/devices/{device_id}")
-async def update_device(device_id: str, device: DeviceUpdate):
+async def update_device(device_id: str, device: DeviceUpdate, user: str = Depends(need_auth)):
     """Update an existing device."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -795,7 +1466,7 @@ async def update_device(device_id: str, device: DeviceUpdate):
 
 
 @app.delete("/devices/{device_id}")
-async def delete_device(device_id: str):
+async def delete_device(device_id: str, user: str = Depends(need_auth)):
     """Delete a device."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -808,7 +1479,7 @@ async def delete_device(device_id: str):
 
 # Network endpoints
 @app.get("/networks")
-async def list_networks():
+async def list_networks(user: str = Depends(need_auth)):
     """List all networks."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -816,7 +1487,7 @@ async def list_networks():
 
 
 @app.get("/networks/{network_id}")
-async def get_network(network_id: str):
+async def get_network(network_id: str, user: str = Depends(need_auth)):
     """Get network by ID."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -827,7 +1498,7 @@ async def get_network(network_id: str):
 
 
 @app.post("/networks")
-async def create_network(network: NetworkCreate):
+async def create_network(network: NetworkCreate, user: str = Depends(need_auth)):
     """Create a new network."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -835,7 +1506,23 @@ async def create_network(network: NetworkCreate):
 
     # If the network has a CIDR, auto-rescan it in the background and
     # emit a devices_refresh SSE event when discovery finishes.
+    # Security: cap the range to <= 4096 hosts so a hostile /0 or /8
+    # cidr can't tie up the event loop / exhaust memory.
+    import ipaddress as _ip_net
     cidr = (created or {}).get("cidr")
+    if cidr:
+        try:
+            net = _ip_net.ip_network(cidr, strict=False)
+            if net.num_addresses > 4096:
+                logger.warning(
+                    f"Skipping auto-rescan for {cidr}: "
+                    f"{net.num_addresses} hosts exceeds 4096-host cap"
+                )
+                cidr = None
+        except ValueError:
+            # Non-CIDR string — pass through; the underlying scanner
+            # has its own 4096-host cap.
+            pass
     if cidr:
         async def _auto_scan():
             try:
@@ -869,7 +1556,7 @@ async def create_network(network: NetworkCreate):
 VALID_NETWORK_TYPES = {"lan", "wan", "wifi", "sfp", "console", "bmc", "mgmt", "dmz", "vlan", "vpn", "custom"}
 
 @app.put("/networks/{network_id}")
-async def update_network(network_id: str, network: NetworkUpdate):
+async def update_network(network_id: str, network: NetworkUpdate, user: str = Depends(need_auth)):
     """Update a network."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -897,7 +1584,7 @@ async def update_network(network_id: str, network: NetworkUpdate):
 
 
 @app.delete("/networks/{network_id}")
-async def delete_network(network_id: str):
+async def delete_network(network_id: str, user: str = Depends(need_auth)):
     """Delete a network."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -907,7 +1594,7 @@ async def delete_network(network_id: str):
 
 
 @app.post("/networks/{network_id}/default")
-async def set_default_network(network_id: str):
+async def set_default_network(network_id: str, user: str = Depends(need_auth)):
     """Set a network as the default."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -919,7 +1606,7 @@ async def set_default_network(network_id: str):
 
 
 @app.post("/devices/{device_id}/network/{network_id}")
-async def assign_device_network(device_id: str, network_id: str):
+async def assign_device_network(device_id: str, network_id: str, user: str = Depends(need_auth)):
     """Assign a device to a network."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -941,6 +1628,7 @@ async def get_topology_history(
     from_time: str = None,
     to_time: str = None,
     offset: int = 0,
+    user: str = Depends(need_auth),
 ):
     """Get topology change history for auditing and trend analysis."""
     if not db_client:
@@ -952,7 +1640,7 @@ async def get_topology_history(
 
 
 @app.get("/topology/snapshot/{event_id}")
-async def get_topology_snapshot(event_id: int):
+async def get_topology_snapshot(event_id: int, user: str = Depends(need_auth)):
     """Get topology nodes+links that existed at a specific history event."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -972,10 +1660,22 @@ async def get_topology_snapshot(event_id: int):
 
 # Discovery endpoint
 @app.post("/discover")
-async def discover_network(request: DiscoveryRequest):
+async def discover_network(request: DiscoveryRequest, user: str = Depends(need_auth)):
     """Discover devices in a network range."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
+    # Cap the scan range to avoid DoS via 16M-host scan.
+    try:
+        import ipaddress as _ip
+        net = _ip.ip_network(request.network_range, strict=False)
+        if net.num_addresses > 4096:
+            raise HTTPException(
+                status_code=400,
+                detail=f"network_range too large ({net.num_addresses} addresses); "
+                       "max 4096 hosts per scan (use a smaller CIDR)",
+            )
+    except ValueError:
+        pass
 
     stats = await add_discovered_devices(
         db_client,
@@ -995,15 +1695,42 @@ class RescanRequest(BaseModel):
     community: str = "public"
     method: str = "all"
     replace: bool = True
+    mode: str = "merge"  # "merge" (Phase 1 default) | "replace" (admin emergency)
 
 
 @app.post("/discover/rescan")
-async def rescan_network(request: RescanRequest):
-    """Wipe stored devices/topology, then rediscover the supplied range."""
+async def rescan_network(request: RescanRequest, user: str = Depends(need_auth)):
+    """Rescan the supplied range.
+
+    mode=merge (Phase 1 default): non-destructive. Preserves manual
+        devices, marks missing auto devices offline, emits device_stale
+        events for devices offline >= 72h.
+    mode=replace: legacy destructive path. Wipes stored devices
+        and re-discovers from scratch. Admin-only intent.
+    """
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
+    # Cap the scan range to avoid DoS (16.7M hosts in a /8 is enough to
+    # tie up the event loop for days). Mirrors the per-host cap in
+    # expand_cidr_hosts but enforced at the API boundary.
+    try:
+        import ipaddress as _ip
+        net = _ip.ip_network(request.network_range, strict=False)
+        if net.num_addresses > 4096:
+            raise HTTPException(
+                status_code=400,
+                detail=f"network_range too large ({net.num_addresses} addresses); "
+                       "max 4096 hosts per scan (use a smaller CIDR)",
+            )
+    except ValueError:
+        # Not a CIDR — fall through, the underlying scanner will validate
+        pass
 
-    if request.replace:
+    async def _stale_emitter(payload: dict) -> None:
+        # Fan out via the global SSE event channel.
+        await broadcast_event("device_stale", payload)
+
+    if request.mode == "replace":
         stats = await rescan_and_replace(
             db_client,
             request.network_range,
@@ -1011,15 +1738,19 @@ async def rescan_network(request: RescanRequest):
             timeout=2.0,
             max_concurrent=50,
             method=request.method,
+            device_found_event_emitter=broadcast_event,
         )
     else:
-        stats = await add_discovered_devices(
+        stats = await rescan_and_merge(
             db_client,
             request.network_range,
             request.community,
             timeout=2.0,
             max_concurrent=50,
             method=request.method,
+            preserve_manual=True,
+            stale_event_emitter=_stale_emitter,
+            device_found_event_emitter=broadcast_event,
         )
 
     await broadcast_event(
@@ -1029,8 +1760,46 @@ async def rescan_network(request: RescanRequest):
     return stats
 
 
+@app.post("/devices/{device_id}/stale-action")
+async def stale_device_action(device_id: str, req: StaleActionRequest, user: str = Depends(need_auth)):
+    """Handle a stale device user decision: delete or keep."""
+    if not db_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    if req.action not in ("delete", "keep"):
+        raise HTTPException(
+            status_code=400, detail="action must be 'delete' or 'keep'",
+        )
+    device = await db_client.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if req.action == "delete":
+        await db_client.delete_device(device_id)
+        await broadcast_event(
+            "device_stale", {
+                "type": "device_stale_resolved",
+                "device_id": device_id,
+                "action": "delete",
+            },
+        )
+        return {"success": True, "action": "delete", "device_id": device_id}
+    # keep: reset offline_since, mark as manual so future rescans
+    # never mark it offline again.
+    await db_client.update_device(
+        device_id,
+        {"offline_since": None, "discovery_method": "manual"},
+    )
+    await broadcast_event(
+        "device_stale", {
+            "type": "device_stale_resolved",
+            "device_id": device_id,
+            "action": "keep",
+        },
+    )
+    return {"success": True, "action": "keep", "device_id": device_id}
+
+
 @app.get("/events/stream")
-async def stream_events():
+async def stream_events(user: str = Depends(need_auth)):
     """Generic SSE feed: devices_refresh, rescan_started, rescan_completed."""
 
     async def generate():
@@ -1111,7 +1880,7 @@ async def clear_mock_devices(user: str = Depends(need_auth)):
 
 # Poller stats endpoint
 @app.get("/stats")
-def get_poller_stats():
+def get_poller_stats(user: str = Depends(need_auth)):
     """Get poller statistics."""
     if not poller:
         raise HTTPException(status_code=503, detail="Poller not initialized")
@@ -1121,7 +1890,7 @@ def get_poller_stats():
 
 # Alert endpoints
 @app.get("/alerts")
-async def list_alerts(limit: Optional[int] = None, offset: Optional[int] = None):
+async def list_alerts(limit: Optional[int] = None, offset: Optional[int] = None, user: str = Depends(need_auth)):
     """List alert configurations with optional pagination."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1130,7 +1899,7 @@ async def list_alerts(limit: Optional[int] = None, offset: Optional[int] = None)
 
 
 @app.post("/alerts")
-async def create_alert(alert: AlertConfigCreate):
+async def create_alert(alert: AlertConfigCreate, user: str = Depends(need_auth)):
     """Create a new alert configuration."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1176,12 +1945,14 @@ async def create_alert(alert: AlertConfigCreate):
             "config": alert.config,
             "integration_id": alert.integration_id,
             "enabled": alert.enabled,
+            "escalation_minutes": alert.escalation_minutes,
+            "escalated_severity": alert.escalated_severity,
         }
     )
 
 
 @app.put("/alerts/{alert_id}")
-async def update_alert(alert_id: str, alert: AlertConfigUpdate):
+async def update_alert(alert_id: str, alert: AlertConfigUpdate, user: str = Depends(need_auth)):
     """Update an existing alert configuration."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1240,7 +2011,7 @@ async def update_alert(alert_id: str, alert: AlertConfigUpdate):
 
 
 @app.delete("/alerts/{alert_id}")
-async def delete_alert(alert_id: str):
+async def delete_alert(alert_id: str, user: str = Depends(need_auth)):
     """Delete an alert configuration and its history."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1252,7 +2023,7 @@ async def delete_alert(alert_id: str):
 
 
 @app.get("/alerts/history")
-async def get_alert_history(limit: int = 50):
+async def get_alert_history(limit: int = 50, user: str = Depends(need_auth)):
     """Get recent alert history."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1260,7 +2031,7 @@ async def get_alert_history(limit: int = 50):
 
 
 @app.get("/alerts/active")
-async def get_active_alerts():
+async def get_active_alerts(user: str = Depends(need_auth)):
     """Get currently firing (active) alerts."""
     if not alert_service:
         raise HTTPException(status_code=503, detail="Alert service not initialized")
@@ -1268,7 +2039,7 @@ async def get_active_alerts():
 
 
 @app.post("/alerts/active/{alert_key}/acknowledge")
-async def acknowledge_alert(alert_key: str):
+async def acknowledge_alert(alert_key: str, user: str = Depends(need_auth)):
     """Acknowledge an active alert to suppress repeated notifications."""
     if not alert_service:
         raise HTTPException(status_code=503, detail="Alert service not initialized")
@@ -1279,7 +2050,7 @@ async def acknowledge_alert(alert_key: str):
 
 
 @app.post("/alerts/active/{alert_key}/resolve")
-async def resolve_alert(alert_key: str):
+async def resolve_alert(alert_key: str, user: str = Depends(need_auth)):
     """Manually resolve an active alert."""
     if not alert_service:
         raise HTTPException(status_code=503, detail="Alert service not initialized")
@@ -1290,7 +2061,7 @@ async def resolve_alert(alert_key: str):
 
 
 @app.post("/alerts/{alert_id}/test")
-async def test_alert(alert_id: str):
+async def test_alert(alert_id: str, user: str = Depends(need_auth)):
     """Send a test alert."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1336,7 +2107,7 @@ async def test_alert(alert_id: str):
 
 # Integration endpoints
 @app.get("/integrations")
-async def list_integrations(type: Optional[str] = None):
+async def list_integrations(type: Optional[str] = None, user: str = Depends(need_auth)):
     """List integrations, optionally filtered by type."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1344,7 +2115,7 @@ async def list_integrations(type: Optional[str] = None):
 
 
 @app.post("/integrations")
-async def create_integration(data: IntegrationCreate):
+async def create_integration(data: IntegrationCreate, user: str = Depends(need_auth)):
     """Create a new integration (Telegram bot, Slack webhook, etc.)."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1365,7 +2136,7 @@ async def create_integration(data: IntegrationCreate):
 
 
 @app.get("/integrations/{integration_id}")
-async def get_integration(integration_id: str):
+async def get_integration(integration_id: str, user: str = Depends(need_auth)):
     """Get a single integration by ID."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1376,7 +2147,7 @@ async def get_integration(integration_id: str):
 
 
 @app.put("/integrations/{integration_id}")
-async def update_integration(integration_id: str, data: IntegrationUpdate):
+async def update_integration(integration_id: str, data: IntegrationUpdate, user: str = Depends(need_auth)):
     """Update an existing integration."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1400,7 +2171,7 @@ async def update_integration(integration_id: str, data: IntegrationUpdate):
 
 
 @app.delete("/integrations/{integration_id}")
-async def delete_integration(integration_id: str):
+async def delete_integration(integration_id: str, user: str = Depends(need_auth)):
     """Delete an integration. Blocked if alert rules reference it."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1413,7 +2184,7 @@ async def delete_integration(integration_id: str):
 
 
 @app.post("/integrations/{integration_id}/test")
-async def test_integration(integration_id: str):
+async def test_integration(integration_id: str, user: str = Depends(need_auth)):
     """Send a test message through the integration."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1464,7 +2235,7 @@ class MaintenanceWindowCreate(BaseModel):
 
 
 @app.get("/maintenance-windows")
-async def list_maintenance_windows():
+async def list_maintenance_windows(user: str = Depends(need_auth)):
     """List all maintenance windows."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1472,7 +2243,7 @@ async def list_maintenance_windows():
 
 
 @app.post("/maintenance-windows")
-async def create_maintenance_window(window: MaintenanceWindowCreate):
+async def create_maintenance_window(window: MaintenanceWindowCreate, user: str = Depends(need_auth)):
     """Create a new maintenance window."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1487,7 +2258,7 @@ async def create_maintenance_window(window: MaintenanceWindowCreate):
 
 
 @app.delete("/maintenance-windows/{window_id}")
-async def delete_maintenance_window(window_id: str):
+async def delete_maintenance_window(window_id: str, user: str = Depends(need_auth)):
     """Delete a maintenance window."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1499,7 +2270,7 @@ async def delete_maintenance_window(window_id: str):
 
 # Poll history endpoint
 @app.get("/poll-history")
-async def get_poll_history(limit: int = 100):
+async def get_poll_history(limit: int = 100, user: str = Depends(need_auth)):
     """Get recent poll history."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1511,10 +2282,19 @@ class ServiceCheckCreate(BaseModel):
     name: str
     check_type: str = Field(..., description="Type: http, tcp, dns, ping, ssl")
     target: str
-    interval_seconds: int = 60
+    interval_seconds: Optional[int] = None  # None -> apply Phase 2 type default
     timeout_seconds: int = 10
-    config: dict[str, Any] = {}
     enabled: bool = True
+    config: dict[str, Any] = {}
+
+    @field_validator("interval_seconds", mode="before")
+    @classmethod
+    def apply_type_default(cls, v, info):
+        if v is not None:
+            return v
+        from .checks.base import default_interval_for
+        check_type = (info.data or {}).get("check_type", "http")
+        return default_interval_for(check_type)
 
 
 class ServiceCheckUpdate(BaseModel):
@@ -1526,7 +2306,7 @@ class ServiceCheckUpdate(BaseModel):
 
 
 @app.get("/checks")
-async def list_service_checks(limit: Optional[int] = None, offset: Optional[int] = None):
+async def list_service_checks(limit: Optional[int] = None, offset: Optional[int] = None, user: str = Depends(need_auth)):
     """List service checks with optional pagination."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1534,8 +2314,33 @@ async def list_service_checks(limit: Optional[int] = None, offset: Optional[int]
     return await db_client.list_service_checks(limit=limit, offset=offset)
 
 
+@app.get("/api/checks/defaults")
+async def get_check_defaults(user: str = Depends(need_auth)):
+    """Phase 2: return current profile's per-type check interval defaults.
+
+    Reads the per-key `check_intervals` row from app_settings; if
+    missing, falls back to the static `DEFAULT_CHECK_INTERVALS`.
+    """
+    from .checks.base import DEFAULT_CHECK_INTERVALS
+    if not db_client:
+        return {"defaults": DEFAULT_CHECK_INTERVALS}
+    profile = "homelab"
+    intervals = DEFAULT_CHECK_INTERVALS.copy()
+    if hasattr(db_client, "get_setting"):
+        try:
+            v = await db_client.get_setting("check_intervals")
+            if isinstance(v, dict) and v:
+                intervals.update({k: int(v[k]) for k in v if isinstance(v[k], (int, float))})
+            p = await db_client.get_setting("profile")
+            if isinstance(p, str) and p:
+                profile = p
+        except Exception:
+            pass
+    return {"profile": profile, "defaults": intervals}
+
+
 @app.get("/checks/{check_id}")
-async def get_service_check(check_id: str):
+async def get_service_check(check_id: str, user: str = Depends(need_auth)):
     """Get a specific service check."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1548,7 +2353,7 @@ async def get_service_check(check_id: str):
 
 
 @app.post("/checks")
-async def create_service_check(check: ServiceCheckCreate):
+async def create_service_check(check: ServiceCheckCreate, user: str = Depends(need_auth)):
     """Create a new service check."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1593,7 +2398,7 @@ async def create_service_check(check: ServiceCheckCreate):
 
 
 @app.put("/checks/{check_id}")
-async def update_service_check(check_id: str, check: ServiceCheckUpdate):
+async def update_service_check(check_id: str, check: ServiceCheckUpdate, user: str = Depends(need_auth)):
     """Update an existing service check."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1628,7 +2433,7 @@ async def update_service_check(check_id: str, check: ServiceCheckUpdate):
 
 
 @app.delete("/checks/{check_id}")
-async def delete_service_check(check_id: str):
+async def delete_service_check(check_id: str, user: str = Depends(need_auth)):
     """Delete a service check."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1644,7 +2449,7 @@ async def delete_service_check(check_id: str):
 
 
 @app.post("/checks/{check_id}/run")
-async def run_service_check_now(check_id: str):
+async def run_service_check_now(check_id: str, user: str = Depends(need_auth)):
     """Run a service check immediately."""
     if not check_scheduler:
         raise HTTPException(status_code=503, detail="Check scheduler not initialized")
@@ -1665,7 +2470,7 @@ async def run_service_check_now(check_id: str):
 
 
 @app.get("/checks/{check_id}/results")
-async def get_check_results(check_id: str, limit: int = 100):
+async def get_check_results(check_id: str, limit: int = 100, user: str = Depends(need_auth)):
     """Get recent check results."""
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
@@ -1674,7 +2479,7 @@ async def get_check_results(check_id: str, limit: int = 100):
 
 
 @app.get("/checks/stats")
-async def get_check_stats():
+async def get_check_stats(user: str = Depends(need_auth)):
     """Get check scheduler statistics."""
     if not check_scheduler:
         raise HTTPException(status_code=503, detail="Check scheduler not initialized")

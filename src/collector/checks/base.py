@@ -14,6 +14,24 @@ class CheckStatus(Enum):
     UNKNOWN = "unknown"
 
 
+# Phase 2: per-type default intervals. The SSL default of 24h is
+# the locked spec decision (NETOPS_REFRESH_INTERVALS_PLAN §1 Q3):
+# SSL certificates rarely change faster than daily, so checking
+# more often wastes resources.
+DEFAULT_CHECK_INTERVALS: dict[str, int] = {
+    "ping": 60,
+    "http": 60,
+    "tcp": 60,
+    "dns": 300,
+    "ssl": 86400,  # 24 hours
+}
+
+
+def default_interval_for(check_type: str) -> int:
+    """Return the Phase 2 default interval for a check type."""
+    return DEFAULT_CHECK_INTERVALS.get(check_type, 60)
+
+
 @dataclass
 class CheckResult:
     """Result of a service check."""

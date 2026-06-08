@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import threading
 from ipaddress import IPv4Address
 from typing import Any, Optional
 
@@ -10,6 +11,7 @@ from pysnmp.hlapi.asyncio import (
     CommunityData,
     ContextData,
     ObjectIdentity,
+    ObjectType,
     SnmpEngine,
     UdpTransportTarget,
     UsmUserData,
@@ -19,6 +21,13 @@ from pysnmp.hlapi.asyncio import (
 
 SNMP_TIMEOUT = 5
 SNMP_RETRIES = 3
+
+_ENGINE_LOCK = threading.Lock()
+_ENGINES: dict[str, SnmpEngine] = {}
+
+
+class SNMPRequestError(Exception):
+    """Raised when an SNMP request fails (timeout, auth, parse error)."""
 
 
 def _build_auth(device: dict[str, Any]) -> Any:
@@ -38,23 +47,38 @@ def _build_auth_v2(host: str, community: str = "public") -> Any:
     return CommunityData(community)
 
 
+def _get_engine(ip: str) -> SnmpEngine:
+    with _ENGINE_LOCK:
+        engine = _ENGINES.get(ip)
+        if engine is None:
+            engine = SnmpEngine()
+            _ENGINES[ip] = engine
+        return engine
+
+
 async def _get_async(host: str, auth_data: Any, oid: str, timeout: int = SNMP_TIMEOUT, retries: int = SNMP_RETRIES) -> tuple:
+    transport = await UdpTransportTarget.create(
+        (host, 161), timeout=timeout, retries=retries
+    )
     return await get_cmd(
-        SnmpEngine(),
+        _get_engine(host),
         auth_data,
-        UdpTransportTarget((host, 161), timeout=timeout, retries=retries),
+        transport,
         ContextData(),
-        ObjectIdentity(oid),
+        ObjectType(ObjectIdentity(oid)),
     )
 
 
 async def _walk_async(host: str, auth_data: Any, oid: str, timeout: int = SNMP_TIMEOUT, retries: int = SNMP_RETRIES) -> tuple:
+    transport = await UdpTransportTarget.create(
+        (host, 161), timeout=timeout, retries=retries
+    )
     return await walk_cmd(
-        SnmpEngine(),
+        _get_engine(host),
         auth_data,
-        UdpTransportTarget((host, 161), timeout=timeout, retries=retries),
+        transport,
         ContextData(),
-        ObjectIdentity(oid),
+        ObjectType(ObjectIdentity(oid)),
     )
 
 
@@ -67,7 +91,10 @@ async def get_sys_descr_async(host: str, auth_data: Any) -> Optional[str]:
         host, auth_data, "1.3.6.1.2.1.1.1.0"
     )
     if error_indication or error_status:
-        return None
+        raise SNMPRequestError(
+            f"sysDescr failed for {host}: "
+            f"indication={error_indication!r} status={error_status!r}"
+        )
     for var_bind in var_binds:
         return str(var_bind[1])
     return None
@@ -83,24 +110,32 @@ def walk_lldp_neighbors(host: str, community: str = "public") -> list[dict]:
 
 
 async def walk_lldp_neighbors_async(host: str, auth_data: Any) -> list[dict]:
-    port_error, _, _, port_var_binds = await _walk_async(
+    port_error, port_status, _, port_var_binds = await _walk_async(
         host, auth_data, "1.0.8802.1.1.2.1.4.1.1"
     )
-    sys_error, _, _, sys_var_binds = await _walk_async(
+    if port_error or port_status:
+        raise SNMPRequestError(
+            f"LLDP port walk failed for {host}: "
+            f"indication={port_error!r} status={port_status!r}"
+        )
+    sys_error, sys_status, _, sys_var_binds = await _walk_async(
         host, auth_data, "1.0.8802.1.1.2.1.3.7.1.4"
     )
+    if sys_error or sys_status:
+        raise SNMPRequestError(
+            f"LLDP sys walk failed for {host}: "
+            f"indication={sys_error!r} status={sys_status!r}"
+        )
 
     port_map: dict[str, str] = {}
-    if not port_error:
-        for vb in port_var_binds:
-            idx = _extract_lldp_index(str(vb[0]))
-            port_map[idx] = str(vb[1])
+    for vb in port_var_binds:
+        idx = _extract_lldp_index(str(vb[0]))
+        port_map[idx] = str(vb[1])
 
     sys_map: dict[str, str] = {}
-    if not sys_error:
-        for vb in sys_var_binds:
-            idx = _extract_lldp_index(str(vb[0]))
-            sys_map[idx] = str(vb[1])
+    for vb in sys_var_binds:
+        idx = _extract_lldp_index(str(vb[0]))
+        sys_map[idx] = str(vb[1])
 
     neighbors = []
     for idx in port_map:

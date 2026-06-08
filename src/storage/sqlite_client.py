@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
+from src.api.services.encryption import encrypt_field, decrypt_field
+
 
 def _config_signature(alert_type: str, channel: str, config: dict[str, Any]) -> str:
     """Stable signature for (alert_type, channel, normalized config) dedup."""
@@ -176,15 +178,15 @@ class AsyncSQLiteClient:
                 await asyncio.sleep(0.05 * (attempt + 1))
         raise last_exc  # type: ignore[misc]
 
-    async def create_user(self, username: str, password_hash: str, email: Optional[str] = None, name: Optional[str] = None) -> dict[str, Any]:
+    async def create_user(self, username: str, password_hash: str, email: Optional[str] = None, name: Optional[str] = None, must_change_password: bool = False) -> dict[str, Any]:
         uid = str(uuid.uuid4())
         await self._execute_with_retry(
             self._db.execute,
-            "INSERT INTO users (id, username, email, name, password_hash) VALUES (?, ?, ?, ?, ?)",
-            (uid, username, email, name, password_hash),
+            "INSERT INTO users (id, username, email, name, password_hash, must_change_password) VALUES (?, ?, ?, ?, ?, ?)",
+            (uid, username, email, name, password_hash, must_change_password),
         )
         await self._db.commit()
-        return {"id": uid, "username": username, "email": email, "name": name, "role": "admin"}
+        return {"id": uid, "username": username, "email": email, "name": name, "role": "admin", "must_change_password": must_change_password}
 
     async def get_user_by_username(self, username: str) -> Optional[dict[str, Any]]:
         cursor = await self._execute_with_retry(
@@ -200,17 +202,68 @@ class AsyncSQLiteClient:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
+    async def update_user_password(self, username: str, password_hash: str) -> bool:
+        """Update user password and clear must_change_password flag."""
+        cursor = await self._execute_with_retry(
+            self._db.execute,
+            "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE username = ?",
+            (password_hash, username),
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
     async def get_settings(self) -> dict[str, Any]:
         cursor = await self._db.execute("SELECT value FROM app_settings WHERE key = 'config'")
         row = await cursor.fetchone()
         if row:
-            return json.loads(row["value"]) if isinstance(row["value"], str) else row["value"]
+            v = row[0]
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except (TypeError, json.JSONDecodeError):
+                    return v
+            return v
         return {}
 
     async def update_settings(self, data: dict[str, Any]):
         await self._db.execute(
             "UPDATE app_settings SET value = ?, updated = datetime('now') WHERE key = 'config'",
             (json.dumps(data),),
+        )
+        await self._db.commit()
+
+    async def get_setting(self, key: str, default: Any = None) -> Any:
+        cursor = await self._db.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (key,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return default
+        v = row[0]
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (TypeError, json.JSONDecodeError):
+                return v
+        return v
+
+    async def set_setting(self, key: str, value: Any) -> None:
+        if isinstance(value, (dict, list)):
+            raw = json.dumps(value)
+        elif isinstance(value, bool):
+            raw = "true" if value else "false"
+        elif value is None:
+            raw = None
+        else:
+            raw = str(value)
+        await self._db.execute(
+            """
+            INSERT INTO app_settings (key, value, updated)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT (key) DO UPDATE
+            SET value = excluded.value, updated = datetime('now')
+            """,
+            (key, raw),
         )
         await self._db.commit()
 
@@ -244,7 +297,15 @@ class AsyncSQLiteClient:
             params.append(offset)
         cursor = await self._db.execute(query, tuple(params) if params else ())
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        devices = []
+        for row in rows:
+            device = dict(row)
+            # Decrypt sensitive fields
+            for field in ("community", "snmpv3_auth_key", "snmpv3_priv_key"):
+                if field in device and device[field]:
+                    device[field] = decrypt_field(device[field])
+            devices.append(device)
+        return devices
 
     async def get_device(self, device_id: str) -> Optional[dict[str, Any]]:
         """Get device by ID or IP."""
@@ -253,31 +314,49 @@ class AsyncSQLiteClient:
             (device_id, device_id)
         )
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        device = dict(row)
+        # Decrypt sensitive fields
+        for field in ("community", "snmpv3_auth_key", "snmpv3_priv_key"):
+            if field in device and device[field]:
+                device[field] = decrypt_field(device[field])
+        return device
 
     async def create_device(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new device."""
         device_id = data.get("id") or str(uuid.uuid4())
+        # Encrypt sensitive fields
+        community = encrypt_field(data.get("community", "public"))
+        snmpv3_auth_key = encrypt_field(data.get("snmpv3_auth_key"))
+        snmpv3_priv_key = encrypt_field(data.get("snmpv3_priv_key"))
+        
         await self._db.execute(
             """
-            INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled, snmpv3_auth_key, snmpv3_priv_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (device_id, data.get("name", ""), data["ip_address"],
-             data.get("community", "public"), data.get("status", "unknown"),
+             community, data.get("status", "unknown"),
              data.get("sys_descr", ""), data.get("discovery_method", "manual"),
-             data.get("last_polled"))
+             data.get("last_polled"), snmpv3_auth_key, snmpv3_priv_key)
         )
         await self._db.commit()
         return await self.get_device(device_id)
 
     async def update_device(self, device_id: str, data: dict[str, Any]) -> dict[str, Any]:
         """Update an existing device."""
-        fields = ", ".join(f"{k} = ?" for k in data.keys())
-        values = list(data.values()) + [device_id, device_id]
-        await self._db.execute(
+        encrypted_data = data.copy()
+        for field in ("community", "snmpv3_auth_key", "snmpv3_priv_key"):
+            if field in encrypted_data and encrypted_data[field] is not None:
+                encrypted_data[field] = encrypt_field(encrypted_data[field])
+        
+        fields = ", ".join(f"{k} = ?" for k in encrypted_data.keys())
+        values = list(encrypted_data.values()) + [device_id, device_id]
+        await self._execute_with_retry(
+            self._db.execute,
             f"UPDATE devices SET {fields}, updated = datetime('now') WHERE id = ? OR ip_address = ?",
-            values
+            values,
         )
         await self._db.commit()
         return await self.get_device(device_id)
@@ -605,9 +684,10 @@ class AsyncSQLiteClient:
         self, device_id: str, status: str, response_time_ms: float = 0, error: str = ""
     ):
         """Record a poll result."""
-        await self._db.execute(
+        await self._execute_with_retry(
+            self._db.execute,
             "INSERT INTO poll_history (device_id, status, response_time_ms, error) VALUES (?, ?, ?, ?)",
-            (device_id, status, response_time_ms, error)
+            (device_id, status, response_time_ms, error),
         )
         await self._db.commit()
 

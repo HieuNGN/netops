@@ -1,6 +1,7 @@
 """Network device discovery - scans IP ranges for responsive devices via SNMP, ping, or TCP ports."""
 
 import asyncio
+import datetime
 import platform
 import socket
 from typing import Any, Optional
@@ -50,14 +51,20 @@ async def discover_devices(
     """
     import ipaddress
 
-    # Parse network range
+    # Defense-in-depth: refuse to expand a CIDR larger than the
+    # public-API cap (4096 hosts). Prevents accidental DoS if a
+    # caller forgets the upstream check.
+    _MAX_HOSTS = 4096
     try:
         network = ipaddress.ip_network(network_range, strict=False)
+        if network.num_addresses > _MAX_HOSTS:
+            return []
+        hosts = [str(host) for host in network.hosts()]
+        return await _scan_hosts(hosts, community, timeout, max_concurrent, method)
     except ValueError:
-        return await _discover_range(network_range, community, timeout, max_concurrent, method)
+        pass
 
-    hosts = [str(host) for host in network.hosts()]
-    return await _scan_hosts(hosts, community, timeout, max_concurrent, method)
+    return await _discover_range(network_range, community, timeout, max_concurrent, method)
 
 
 async def _discover_range(
@@ -77,8 +84,18 @@ async def _discover_range(
         return []
 
     base_prefix = base_parts[0]
-    start = int(base_parts[1])
-    end = int(parts[1])
+    try:
+        start = int(base_parts[1])
+        end = int(parts[1])
+    except ValueError:
+        return []
+
+    if end < start:
+        return []
+    # Cap the range to prevent DoS via huge ranges. Mirrors the
+    # /api/discover* size guard (4096 hosts).
+    if end - start + 1 > 4096:
+        return []
 
     hosts = [f"{base_prefix}.{i}" for i in range(start, end + 1)]
     return await _scan_hosts(hosts, community, timeout, max_concurrent, method)
@@ -261,20 +278,34 @@ async def add_discovered_devices(
     timeout: float = 2.0,
     max_concurrent: int = 50,
     method: str = "all",
+    device_found_event_emitter: Optional[Any] = None,
 ) -> dict[str, Any]:
     """
     Discover devices and add them to the database.
+
+    Raises:
+        ValueError: if network_range expands to more than 4096 hosts.
 
     Returns:
         Dict with 'found', 'added', 'scanned', and 'by_method' counts
     """
     import ipaddress
 
-    # Count how many hosts we scanned
+    # Defense-in-depth: enforce the 4096-host cap at this layer too.
+    # /api/discover* checks first, but internal callers (e.g.
+    # _startup_auto_discover, scripts) might not. Mirrors the
+    # CIDR guard in discover_devices().
     try:
         network = ipaddress.ip_network(network_range, strict=False)
+        if network.num_addresses > 4096:
+            raise ValueError(
+                f"network_range too large ({network.num_addresses} addresses); "
+                "max 4096 hosts per scan (use a smaller CIDR)"
+            )
         scanned = network.num_addresses - 2  # Exclude network/broadcast
-    except ValueError:
+    except ValueError as ve:
+        if "too large" in str(ve):
+            raise
         scanned = 0  # Simple range; could count but not critical
 
     discovered = await discover_devices(
@@ -306,6 +337,20 @@ async def add_discovered_devices(
             )
             stats["added"] += 1
 
+        # Emit device_found event for real-time frontend feedback
+        if device_found_event_emitter is not None:
+            try:
+                await device_found_event_emitter({
+                    "type": "device_found",
+                    "ip_address": device["ip_address"],
+                    "method": method_used,
+                    "sys_descr": device.get("sys_descr", ""),
+                    "is_new": not existing,
+                    "total": len(discovered),
+                })
+            except Exception:
+                pass
+
     return stats
 
 
@@ -316,6 +361,7 @@ async def rescan_and_replace(
     timeout: float = 2.0,
     max_concurrent: int = 50,
     method: str = "all",
+    device_found_event_emitter: Optional[Any] = None,
 ) -> dict[str, Any]:
     """
     Nuke every device + topology, then rediscover from the given range.
@@ -333,10 +379,204 @@ async def rescan_and_replace(
         cleared = await db_client.bulk_delete_devices(ids) if ids else 0
 
     stats = await add_discovered_devices(
-        db_client, network_range, community, timeout, max_concurrent, method
+        db_client, network_range, community, timeout, max_concurrent, method,
+        device_found_event_emitter=device_found_event_emitter,
     )
     stats["cleared"] = cleared
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: non-destructive merge-based discovery.
+# Replaces the destructive rescan_and_replace as the default path.
+# Preserves manual devices, marks missing auto devices offline, and
+# emits device_stale events for devices offline >= 72h.
+# ---------------------------------------------------------------------------
+
+_STALE_THRESHOLD_HOURS = 72
+
+
+async def rescan_and_merge(
+    db_client: Any,
+    network_range: str,
+    community: str = "public",
+    timeout: float = 2.0,
+    max_concurrent: int = 50,
+    method: str = "all",
+    preserve_manual: bool = True,
+    stale_event_emitter: Optional[Any] = None,
+    device_found_event_emitter: Optional[Any] = None,
+) -> dict[str, Any]:
+    """Phase 1 merge-based discovery.
+
+    Algorithm:
+      1. Run probe on the network range. Get fresh set of IPs.
+      2. For each discovered device:
+         - IP exists in DB -> update_device (status=online, refresh
+           sys_descr, last_scanned=now, clear offline_since).
+         - IP is new         -> create_device with discovery_method
+           from the probe.
+      3. For each current device NOT in the fresh set:
+         - discovery_method == "manual" and preserve_manual -> skip.
+         - status != "offline" -> mark offline + set offline_since=now.
+         - status == "offline" and hours_since(offline_since) >= 72
+           -> emit "device_stale" event (caller is expected to fan
+           this out to SSE subscribers; the function only calls the
+           optional emitter if provided).
+
+    Returns dict with scanned, found, added, updated, preserved,
+    marked_offline, stale, by_method.
+    """
+    import datetime as _dt
+
+    # 1. probe the range
+    discovered = await discover_devices(
+        network_range, community, timeout, max_concurrent, method,
+    )
+    discovered_ips = {d["ip_address"] for d in discovered}
+
+    # 2. existing devices in DB (across the whole DB; the merge is
+    # not range-scoped because devices outside the range may still
+    # be tracked manually)
+    current = await db_client.list_devices()
+    current_by_ip = {d["ip_address"]: d for d in current if d.get("ip_address")}
+
+    now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+    stats = {
+        "scanned": 0,
+        "found": len(discovered),
+        "added": 0,
+        "updated": 0,
+        "preserved": 0,
+        "marked_offline": 0,
+        "stale": 0,
+        "by_method": {"snmp": 0, "ping": 0, "port": 0},
+    }
+
+    # Try to derive scanned count from CIDR (best effort)
+    try:
+        import ipaddress as _ip
+        net = _ip.ip_network(network_range, strict=False)
+        stats["scanned"] = net.num_addresses - 2
+    except ValueError:
+        pass
+
+    # 3a. upsert discovered
+    for dev in discovered:
+        ip = dev["ip_address"]
+        method_used = dev.get("discovery_method", "snmp")
+        sys_descr = dev.get("sys_descr", "")
+        stats["by_method"][method_used] = stats["by_method"].get(method_used, 0) + 1
+        existing = current_by_ip.get(ip)
+        if existing:
+            update_data = {
+                "status": "online",
+                "sys_descr": sys_descr or existing.get("sys_descr", ""),
+                "last_scanned": now_iso,
+                "discovery_method": method_used,
+            }
+            # Clear offline_since on a re-sighted device
+            update_data["offline_since"] = None
+            try:
+                await db_client.update_device(existing["id"], update_data)
+            except Exception:
+                # Some backends may not have offline_since; ignore
+                update_data.pop("offline_since", None)
+                await db_client.update_device(existing["id"], update_data)
+            stats["updated"] += 1
+        else:
+            await db_client.create_device({
+                "ip_address": ip,
+                "community": dev.get("community", community),
+                "sys_descr": sys_descr,
+                "status": "online",
+                "discovery_method": method_used,
+            })
+            stats["added"] += 1
+
+        # Emit device_found event for real-time frontend feedback
+        if device_found_event_emitter is not None:
+            try:
+                await device_found_event_emitter({
+                    "type": "device_found",
+                    "ip_address": ip,
+                    "method": method_used,
+                    "sys_descr": sys_descr,
+                    "is_new": not existing,
+                    "total": len(discovered),
+                })
+            except Exception:
+                pass
+
+    # 3b. mark missing devices offline (skip manual if preserve_manual)
+    for ip, dev in current_by_ip.items():
+        if ip in discovered_ips:
+            continue
+        if dev.get("status") == "unknown":
+            # never-was-seen devices outside this range; leave alone
+            continue
+        if preserve_manual and dev.get("discovery_method") == "manual":
+            stats["preserved"] += 1
+            continue
+        if dev.get("status") == "offline":
+            # check stale threshold
+            offline_since = dev.get("offline_since")
+            if offline_since and _is_stale(offline_since):
+                stats["stale"] += 1
+                if stale_event_emitter is not None:
+                    try:
+                        await stale_event_emitter({
+                            "type": "device_stale",
+                            "device_id": dev.get("id") or ip,
+                            "ip_address": ip,
+                            "name": dev.get("name", ""),
+                            "offline_since": offline_since,
+                            "offline_hours": _hours_since(offline_since),
+                        })
+                    except Exception:
+                        pass
+            continue
+        # mark offline + set offline_since
+        try:
+            await db_client.update_device(
+                dev.get("id") or ip,
+                {"status": "offline", "offline_since": now_iso},
+            )
+        except Exception:
+            # Backend may not support offline_since
+            await db_client.update_device(
+                dev.get("id") or ip,
+                {"status": "offline"},
+            )
+        stats["marked_offline"] += 1
+
+    return stats
+
+
+def _parse_iso_dt(s: str) -> Optional["datetime.datetime"]:
+    if not s:
+        return None
+    try:
+        # Accept "Z" suffix and naive ISO
+        return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _hours_since(iso_str: str) -> float:
+    """Return hours between iso_str and now (UTC). Negative if future."""
+    dt = _parse_iso_dt(iso_str)
+    if dt is None:
+        return 0.0
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return (now - dt).total_seconds() / 3600.0
+
+
+def _is_stale(iso_str: str) -> bool:
+    return _hours_since(iso_str) >= _STALE_THRESHOLD_HOURS
 
 
 def expand_cidr_hosts(network_range: str, limit: int = 1024) -> list[str]:

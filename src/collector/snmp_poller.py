@@ -35,7 +35,6 @@ class PollStats:
 
     def add_response_time(self, ms: float):
         self._response_times.append(ms)
-        # Keep only last 100 for rolling average
         if len(self._response_times) > 100:
             self._response_times = self._response_times[-100:]
         self.avg_response_time_ms = sum(self._response_times) / len(self._response_times)
@@ -61,14 +60,17 @@ class SNMPPoller:
         self._retention_task: Optional[asyncio.Task] = None
         self._topology_builder = TopologyBuilder()
         self._on_topology_change: Optional[Callable] = None
-        self._poll_semaphore = asyncio.Semaphore(5)  # Cap concurrent SNMP polls
+        self._on_status_change: Optional[Callable] = None
+        self._last_status: dict[str, str] = {}
+        self._poll_semaphore = asyncio.Semaphore(5)
 
     def set_topology_change_handler(self, handler: Callable):
-        """Set callback for topology changes."""
         self._on_topology_change = handler
 
+    def set_status_change_handler(self, handler: Callable):
+        self._on_status_change = handler
+
     async def start(self):
-        """Start the polling loop."""
         if self._running:
             return
         self._running = True
@@ -76,9 +78,8 @@ class SNMPPoller:
         self._retention_task = asyncio.create_task(self._retention_loop())
 
     async def stop(self):
-        """Stop the polling loop."""
         self._running = False
-        for t in [self._task, getattr(self, '_retention_task', None)]:
+        for t in [self._task, getattr(self, "_retention_task", None)]:
             if t:
                 t.cancel()
                 try:
@@ -89,30 +90,47 @@ class SNMPPoller:
         self._retention_task = None
 
     async def _poll_loop(self):
-        """Main polling loop."""
         while self._running:
             try:
                 await self._poll_all_devices()
                 self.stats.last_poll_time = time.strftime("%Y-%m-%d %H:%M:%S")
             except Exception as e:
-                # Log but don't crash the poller
                 print(f"[SNMPPoller] Error in poll loop: {e}")
 
             await asyncio.sleep(self.poll_interval)
 
     async def _retention_loop(self):
-        """Periodic cleanup of old poll + topology history."""
         while self._running:
             try:
-                await asyncio.sleep(3600)  # hourly
-                await self.db_client.cleanup_poll_history(retention_days=30)
-                # Phase 4: drop old topology_history partitions (PG)
-                # or delete old rows (SQLite fallback). Mirrors the
-                # poll_history retention. Default 90 days.
+                await asyncio.sleep(3600)
+
+                poll_retention = 30
+                topo_retention = 90
+                if hasattr(self.db_client, "get_setting"):
+                    try:
+                        v = await self.db_client.get_setting(
+                            "poll_history_retention_days"
+                        )
+                        if isinstance(v, int) and v > 0:
+                            poll_retention = v
+                    except Exception:
+                        pass
+                    try:
+                        v = await self.db_client.get_setting(
+                            "topology_history_retention_days"
+                        )
+                        if isinstance(v, int) and v > 0:
+                            topo_retention = v
+                    except Exception:
+                        pass
+
+                await self.db_client.cleanup_poll_history(
+                    retention_days=poll_retention,
+                )
                 if hasattr(self.db_client, "cleanup_topology_history"):
                     try:
                         await self.db_client.cleanup_topology_history(
-                            retention_days=90
+                            retention_days=topo_retention,
                         )
                     except Exception as inner_e:
                         print(
@@ -124,7 +142,6 @@ class SNMPPoller:
                 print(f"[SNMPPoller] Retention cleanup error: {e}")
 
     async def _poll_all_devices(self):
-        """Poll all configured devices."""
         devices = await self.db_client.list_devices()
 
         if not devices:
@@ -134,10 +151,18 @@ class SNMPPoller:
         self._topology_builder.clear()
 
         for device in devices:
-            result = await self._poll_device(device)
+            try:
+                result = await self._poll_device(device)
+            except Exception as e:
+                print(f"[SNMPPoller] _poll_device raised for {device.get('id')}: {e}")
+                result = PollResult(
+                    device_id=device.get("id", ""),
+                    ip_address=device.get("ip_address", ""),
+                    success=False,
+                    error=str(e),
+                )
             results.append(result)
 
-            # Add node to topology
             status = "online" if result.success else "offline"
             self._topology_builder.add_node(
                 node_id=device["ip_address"],
@@ -148,23 +173,32 @@ class SNMPPoller:
                 sys_descr=result.sys_descr,
             )
 
-        # Build links from LLDP neighbors
         self._build_topology_links(devices, results)
 
-        # Get current topology and detect changes
         current_topology = self._topology_builder.to_json()
-        changes = await self.db_client.upsert_topology(
-            current_topology["nodes"], current_topology["links"]
-        )
+        try:
+            changes = await self.db_client.upsert_topology(
+                current_topology["nodes"], current_topology["links"]
+            )
+        except Exception as e:
+            print(f"[SNMPPoller] upsert_topology failed: {e}")
+            changes = {"nodes_added": 0, "nodes_removed": 0, "links_added": 0, "links_removed": 0}
 
-        # Trigger change handler only when changes exist or status flipped
+        status_flips = sum(
+            1 for r in results
+            if self._last_status.get(r.device_id) is not None
+            and self._last_status.get(r.device_id) != ("online" if r.success else "offline")
+        )
+        if status_flips:
+            changes["status_changed"] = status_flips
+
         has_changes = any(v > 0 for v in changes.values())
         if self._on_topology_change and has_changes:
             await self._on_topology_change(changes, current_topology)
 
     async def _poll_device(self, device: dict[str, Any]) -> PollResult:
-        """Poll a single device with v2c or v3 support."""
         import time
+        from datetime import datetime, timezone
 
         self.stats.total_polls += 1
         start_time = time.time()
@@ -181,19 +215,28 @@ class SNMPPoller:
             self.stats.add_response_time(response_time)
             self.stats.successful_polls += 1
 
-            # Update device in database
-            await self.db_client.update_device(
-                device["id"],
-                {
-                    "status": "online",
-                    "sys_descr": sys_descr or "",
-                    "last_polled": time.strftime("%Y-%m-%d %H:%M:%S"),
-                },
-            )
+            try:
+                await self.db_client.update_device(
+                    device["id"],
+                    {
+                        "status": "online",
+                        "sys_descr": sys_descr or "",
+                        "last_polled": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "offline_since": None,
+                    },
+                )
+            except Exception as e:
+                print(f"[SNMPPoller] update_device failed for {device['id']}: {e}")
 
-            # Record poll result
-            await self.db_client.add_poll_result(
-                device["id"], "online", response_time, ""
+            try:
+                await self.db_client.add_poll_result(
+                    device["id"], "online", response_time, ""
+                )
+            except Exception as e:
+                print(f"[SNMPPoller] add_poll_result failed for {device['id']}: {e}")
+
+            await self._emit_status_change(
+                device, "online", None, response_time_ms=response_time,
             )
 
             return PollResult(
@@ -209,13 +252,33 @@ class SNMPPoller:
             self.stats.failed_polls += 1
             error_msg = str(e)
 
-            # Update device status
-            await self.db_client.update_device(
-                device["id"], {"status": "offline", "last_polled": time.strftime("%Y-%m-%d %H:%M:%S")}
-            )
+            now_iso = datetime.now(timezone.utc).isoformat()
+            try:
+                await self.db_client.update_device(
+                    device["id"],
+                    {
+                        "status": "offline",
+                        "offline_since": now_iso,
+                        "last_polled": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    },
+                )
+            except Exception as inner_e:
+                try:
+                    await self.db_client.update_device(
+                        device["id"],
+                        {"status": "offline", "last_polled": time.strftime("%Y-%m-%d %H:%M:%S")},
+                    )
+                except Exception:
+                    print(f"[SNMPPoller] update_device failed for {device['id']}: {inner_e}")
 
-            # Record poll failure
-            await self.db_client.add_poll_result(device["id"], "offline", 0, error_msg)
+            try:
+                await self.db_client.add_poll_result(device["id"], "offline", 0, error_msg)
+            except Exception as poll_e:
+                print(f"[SNMPPoller] add_poll_result failed for {device['id']}: {poll_e}")
+
+            await self._emit_status_change(
+                device, "offline", error_msg, response_time_ms=0,
+            )
 
             return PollResult(
                 device_id=device["id"],
@@ -224,10 +287,37 @@ class SNMPPoller:
                 error=error_msg,
             )
 
+    async def _emit_status_change(
+        self,
+        device: dict[str, Any],
+        new_status: str,
+        error: Optional[str],
+        response_time_ms: float = 0,
+    ) -> None:
+        prev = self._last_status.get(device["id"])
+        if prev == new_status:
+            return
+        self._last_status[device["id"]] = new_status
+        if self._on_status_change is None:
+            return
+        try:
+            await self._on_status_change(
+                {
+                    "device_id": device["id"],
+                    "ip_address": device.get("ip_address"),
+                    "name": device.get("name", ""),
+                    "old_status": prev,
+                    "new_status": new_status,
+                    "error": error,
+                    "response_time_ms": response_time_ms,
+                }
+            )
+        except Exception as e:
+            print(f"[SNMPPoller] status change handler error: {e}")
+
     def _build_topology_links(
         self, devices: list[dict[str, Any]], results: list[PollResult]
     ):
-        """Build topology links from LLDP neighbor data with multi-strategy matching."""
         ip_to_device = {d["ip_address"]: d for d in devices}
         name_to_device: dict[str, Any] = {}
         for d in devices:
@@ -276,7 +366,6 @@ class SNMPPoller:
                     )
 
     def get_stats(self) -> dict[str, Any]:
-        """Get polling statistics."""
         return {
             "total_polls": self.stats.total_polls,
             "successful_polls": self.stats.successful_polls,
@@ -293,11 +382,39 @@ class SNMPPoller:
         }
 
     async def poll_now(self) -> list[PollResult]:
-        """Trigger an immediate poll of all devices."""
-        await self._poll_all_devices()
+        """Trigger an immediate poll of all devices. Returns results."""
         devices = await self.db_client.list_devices()
+        if not devices:
+            return []
         results = []
+        self._topology_builder.clear()
         for device in devices:
-            result = await self._poll_device(device)
+            try:
+                result = await self._poll_device(device)
+            except Exception as e:
+                print(f"[SNMPPoller] _poll_device raised for {device.get('id')}: {e}")
+                result = PollResult(
+                    device_id=device.get("id", ""),
+                    ip_address=device.get("ip_address", ""),
+                    success=False,
+                    error=str(e),
+                )
             results.append(result)
+            status = "online" if result.success else "offline"
+            self._topology_builder.add_node(
+                node_id=device["ip_address"],
+                label=device.get("name", device["ip_address"]),
+                device_id=device["id"],
+                node_type="device",
+                status=status,
+                sys_descr=result.sys_descr,
+            )
+        self._build_topology_links(devices, results)
+        current_topology = self._topology_builder.to_json()
+        try:
+            await self.db_client.upsert_topology(
+                current_topology["nodes"], current_topology["links"]
+            )
+        except Exception as e:
+            print(f"[SNMPPoller] upsert_topology failed: {e}")
         return results

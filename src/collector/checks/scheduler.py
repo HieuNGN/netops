@@ -207,6 +207,25 @@ class CheckScheduler:
         self._next_run.pop(check_id, None)
         self._check_definitions.pop(check_id, None)
 
+    def apply_check_intervals(self, intervals: dict[str, int]):
+        """Phase 2: apply per-type default intervals live.
+
+        Adjusts the `next_run` time for any existing check whose
+        `check_type` matches a key in `intervals`. New checks added
+        after this call should use `default_interval_for(check_type)`
+        in the request model.
+        """
+        now = time.time()
+        for cid, d in self._check_definitions.items():
+            new_interval = intervals.get(d.check_type)
+            if not new_interval or new_interval <= 0:
+                continue
+            if d.interval_seconds == new_interval:
+                continue
+            d.interval_seconds = new_interval
+            # Reschedule the next run to honor the new cadence.
+            self._next_run[cid] = now
+
     def get_stats(self) -> dict[str, Any]:
         """Get scheduler statistics."""
         return {

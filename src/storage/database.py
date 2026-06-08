@@ -29,6 +29,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 
+from src.api.services.encryption import encrypt_field, decrypt_field
+
 
 def _config_signature(alert_type: str, channel: str, config: dict[str, Any]) -> str:
     """Stable signature for (alert_type, channel, normalized config) dedup."""
@@ -135,6 +137,8 @@ alert_configs_table = Table(
     Column("config_json", String),
     Column("integration_id", String),
     Column("enabled", Integer, default=1),
+    Column("escalation_minutes", Integer, nullable=True),
+    Column("escalated_severity", String, nullable=True),
     Column("created", DateTime, server_default=func.now()),
     Index("idx_alert_configs_enabled", "enabled"),
     Index("idx_alert_configs_integration", "integration_id"),
@@ -401,7 +405,15 @@ class AsyncPostgresClient:
             params.append(offset)
         async with self._get_connection() as conn:
             rows = await conn.fetch(query, *params)
-            return [dict(row) for row in rows]
+            devices = []
+            for row in rows:
+                device = dict(row)
+                # Decrypt sensitive fields
+                for field in ("community", "snmpv3_auth_key", "snmpv3_priv_key"):
+                    if field in device and device[field]:
+                        device[field] = decrypt_field(device[field])
+                devices.append(device)
+            return devices
 
     async def get_device(self, device_id: str) -> Optional[dict[str, Any]]:
         """Get device by ID or IP."""
@@ -410,16 +422,28 @@ class AsyncPostgresClient:
                 "SELECT * FROM devices WHERE id = $1 OR ip_address = $1",
                 device_id,
             )
-            return dict(row) if row else None
+            if not row:
+                return None
+            device = dict(row)
+            # Decrypt sensitive fields
+            for field in ("community", "snmpv3_auth_key", "snmpv3_priv_key"):
+                if field in device and device[field]:
+                    device[field] = decrypt_field(device[field])
+            return device
 
     async def create_device(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new device."""
         device_id = data.get("id") or str(uuid.uuid4())
+        # Encrypt sensitive fields
+        community = encrypt_field(data.get("community", "public"))
+        snmpv3_auth_key = encrypt_field(data.get("snmpv3_auth_key"))
+        snmpv3_priv_key = encrypt_field(data.get("snmpv3_priv_key"))
+        
         async with self._get_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled, snmpv3_auth_key, snmpv3_priv_key)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (ip_address) DO UPDATE SET
                     name = EXCLUDED.name,
                     community = EXCLUDED.community,
@@ -427,26 +451,36 @@ class AsyncPostgresClient:
                     sys_descr = EXCLUDED.sys_descr,
                     discovery_method = EXCLUDED.discovery_method,
                     last_polled = EXCLUDED.last_polled,
+                    snmpv3_auth_key = EXCLUDED.snmpv3_auth_key,
+                    snmpv3_priv_key = EXCLUDED.snmpv3_priv_key,
                     updated = NOW()
                 """,
                 device_id,
                 data.get("name", ""),
                 data["ip_address"],
-                data.get("community", "public"),
+                community,
                 data.get("status", "unknown"),
                 data.get("sys_descr", ""),
                 data.get("discovery_method", "manual"),
                 data.get("last_polled"),
+                snmpv3_auth_key,
+                snmpv3_priv_key,
             )
         return await self.get_device(device_id)
 
     async def update_device(self, device_id: str, data: dict[str, Any]) -> dict[str, Any]:
         """Update an existing device."""
-        fields = ", ".join(f"{k} = ${i + 1}" for i, k in enumerate(data.keys()))
-        num_fields = len(data)
+        # Encrypt sensitive fields before update
+        encrypted_data = data.copy()
+        for field in ("community", "snmpv3_auth_key", "snmpv3_priv_key"):
+            if field in encrypted_data and encrypted_data[field] is not None:
+                encrypted_data[field] = encrypt_field(encrypted_data[field])
+        
+        fields = ", ".join(f"{k} = ${i + 1}" for i, k in enumerate(encrypted_data.keys()))
+        num_fields = len(encrypted_data)
         param1 = f"${num_fields + 1}"
         param2 = f"${num_fields + 2}"
-        values = list(data.values()) + [device_id, device_id]
+        values = list(encrypted_data.values()) + [device_id, device_id]
 
         async with self._get_connection() as conn:
             await conn.execute(
@@ -737,8 +771,8 @@ class AsyncPostgresClient:
             await conn.execute(
                 """
                 INSERT INTO alert_configs
-                    (id, name, alert_type, channel, config_json, integration_id, enabled)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    (id, name, alert_type, channel, config_json, integration_id, enabled, escalation_minutes, escalated_severity)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 """,
                 alert_id,
                 data["name"],
@@ -747,6 +781,8 @@ class AsyncPostgresClient:
                 config_json,
                 data.get("integration_id"),
                 1 if data.get("enabled", True) else 0,
+                data.get("escalation_minutes"),
+                data.get("escalated_severity"),
             )
         return await self._get_alert_config(alert_id)
 
@@ -778,6 +814,12 @@ class AsyncPostgresClient:
         if "enabled" in data:
             sets.append(f"enabled = ${len(params_list) + 1}")
             params_list.append(1 if data["enabled"] else 0)
+        if "escalation_minutes" in data:
+            sets.append(f"escalation_minutes = ${len(params_list) + 1}")
+            params_list.append(data["escalation_minutes"])
+        if "escalated_severity" in data:
+            sets.append(f"escalated_severity = ${len(params_list) + 1}")
+            params_list.append(data["escalated_severity"])
 
         if not sets:
             return existing
@@ -1011,6 +1053,23 @@ class AsyncPostgresClient:
                 ORDER BY ph.polled_at DESC
                 LIMIT $1
                 """,
+                limit,
+            )
+            return [dict(row) for row in rows]
+
+    async def get_device_poll_history(self, device_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Get poll history for a specific device."""
+        async with self._get_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT ph.*, d.ip_address, d.name
+                FROM poll_history ph
+                LEFT JOIN devices d ON ph.device_id = d.id
+                WHERE ph.device_id = $1
+                ORDER BY ph.polled_at DESC
+                LIMIT $2
+                """,
+                device_id,
                 limit,
             )
             return [dict(row) for row in rows]
@@ -1412,15 +1471,15 @@ class AsyncPostgresClient:
                 return 0
 
 
-    async def create_user(self, username: str, password_hash: str, email: Optional[str] = None, name: Optional[str] = None) -> dict[str, Any]:
+    async def create_user(self, username: str, password_hash: str, email: Optional[str] = None, name: Optional[str] = None, must_change_password: bool = False) -> dict[str, Any]:
         async with self._get_connection() as conn:
             import uuid as _uuid
             uid = str(_uuid.uuid4())
             await conn.execute(
-                "INSERT INTO users (id, username, email, name, password_hash) VALUES ($1, $2, $3, $4, $5)",
-                uid, username, email, name, password_hash,
+                "INSERT INTO users (id, username, email, name, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, $6)",
+                uid, username, email, name, password_hash, must_change_password,
             )
-            return {"id": uid, "username": username, "email": email, "name": name, "role": "admin"}
+            return {"id": uid, "username": username, "email": email, "name": name, "role": "admin", "must_change_password": must_change_password}
 
     async def get_user_by_username(self, username: str) -> Optional[dict[str, Any]]:
         async with self._get_connection() as conn:
@@ -1431,6 +1490,15 @@ class AsyncPostgresClient:
         async with self._get_connection() as conn:
             row = await conn.fetchrow("SELECT * FROM users WHERE email = $1", email)
             return dict(row) if row else None
+
+    async def update_user_password(self, username: str, password_hash: str) -> bool:
+        """Update user password and clear must_change_password flag."""
+        async with self._get_connection() as conn:
+            result = await conn.execute(
+                "UPDATE users SET password_hash = $1, must_change_password = false WHERE username = $2",
+                password_hash, username,
+            )
+            return result == "UPDATE 1"
 
     async def get_settings(self) -> dict[str, Any]:
         async with self._get_connection() as conn:
@@ -1444,6 +1512,43 @@ class AsyncPostgresClient:
             await conn.execute(
                 "UPDATE app_settings SET value = $1, updated = NOW() WHERE key = 'config'",
                 json.dumps(data),
+            )
+
+    async def get_setting(self, key: str, default: Any = None) -> Any:
+        """Read a single app_settings row by key. Returns default if absent."""
+        async with self._get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT value FROM app_settings WHERE key = $1", key
+            )
+        if not row:
+            return default
+        v = row["value"]
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (TypeError, json.JSONDecodeError):
+                return v
+        return v
+
+    async def set_setting(self, key: str, value: Any) -> None:
+        """Write a single app_settings row. Inserts or updates."""
+        if isinstance(value, (dict, list)):
+            raw = json.dumps(value)
+        elif isinstance(value, bool):
+            raw = "true" if value else "false"
+        elif value is None:
+            raw = None
+        else:
+            raw = str(value)
+        async with self._get_connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO app_settings (key, value, updated)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (key) DO UPDATE
+                SET value = EXCLUDED.value, updated = NOW()
+                """,
+                key, raw,
             )
 
     async def close(self):
