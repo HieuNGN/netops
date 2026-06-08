@@ -73,8 +73,14 @@ def upgrade() -> None:
 
     # --------------------------------------------------------------
     # Step 1: Rename the existing table so we can recreate it as
-    # a partitioned parent with the same name.
+    # a partitioned parent with the same name. Drop its indexes
+    # first so their names don't collide with the new table's
+    # indexes (PG schema-level uniqueness constraint).
     # --------------------------------------------------------------
+    op.execute("DROP INDEX IF EXISTS idx_topology_history_event")
+    op.execute("DROP INDEX IF EXISTS idx_topology_history_recorded_at")
+    op.execute("DROP INDEX IF EXISTS idx_topology_history_source_time")
+    op.execute("DROP INDEX IF EXISTS idx_topology_history_link_time")
     op.execute("ALTER TABLE topology_history RENAME TO topology_history_legacy")
 
     # --------------------------------------------------------------

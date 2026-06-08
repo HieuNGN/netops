@@ -51,6 +51,9 @@ def upgrade() -> None:
     if not _is_postgres():
         return
 
+    op.execute("DROP INDEX IF EXISTS idx_poll_history_device")
+    op.execute("DROP INDEX IF EXISTS idx_poll_history_polled_at")
+    op.execute("DROP INDEX IF EXISTS idx_poll_history_device_time")
     op.execute("ALTER TABLE poll_history RENAME TO poll_history_legacy")
 
     op.execute("""
