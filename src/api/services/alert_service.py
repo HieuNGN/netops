@@ -296,6 +296,8 @@ class AlertService:
             fired_at = alert.get("fired_at", 0)
             age_minutes = (now - fired_at) / 60
             
+            # Find first matching config with escalation enabled
+            escalation_config = None
             for config in alert_configs:
                 if config.get("alert_type") != alert["alert_type"]:
                     continue
@@ -309,51 +311,60 @@ class AlertService:
                 if age_minutes < escalation_minutes:
                     continue
                 
-                channel = await self.get_notification_channel(
-                    config.get("channel", "webhook"),
-                    config.get("config_json", {}),
-                    integration_id=config.get("integration_id"),
-                )
+                escalation_config = config
+                break  # Use first matching config, prevent double escalation
+            
+            if not escalation_config:
+                continue
+            
+            config = escalation_config
+            channel = await self.get_notification_channel(
+                config.get("channel", "webhook"),
+                config.get("config_json", {}),
+                integration_id=config.get("integration_id"),
+            )
+            
+            if not channel:
+                stats["failed"] += 1
+                continue
+            
+            valid, error = channel.validate_config()
+            if not valid:
+                stats["failed"] += 1
+                continue
+            
+            escalated_alert = {
+                **alert,
+                "severity": config["escalated_severity"],
+                "title": f"[ESCALATED] {alert['title']}",
+                "message": f"{alert['message']} (escalated after {int(age_minutes)} minutes)",
+            }
+            
+            message = NotificationMessage(
+                title=escalated_alert["title"],
+                message=escalated_alert["message"],
+                severity=config["escalated_severity"],
+                alert_type=alert["alert_type"],
+                metadata=escalated_alert,
+            )
+            
+            try:
+                if config.get("channel", "").lower() == "email":
+                    success = channel.send(message)
+                else:
+                    success = await channel.send(message)
                 
-                if not channel:
+                if success:
+                    stats["escalated"] += 1
+                    alert["escalated"] = True
+                    alert["severity"] = config["escalated_severity"]
+                    await self._record_alert(config.get("id"), escalated_alert)
+                else:
                     stats["failed"] += 1
-                    continue
-                
-                valid, error = channel.validate_config()
-                if not valid:
-                    stats["failed"] += 1
-                    continue
-                
-                escalated_alert = {
-                    **alert,
-                    "severity": escalated_severity,
-                    "title": f"[ESCALATED] {alert['title']}",
-                    "message": f"{alert['message']} (escalated after {int(age_minutes)} minutes)",
-                }
-                
-                message = NotificationMessage(
-                    title=escalated_alert["title"],
-                    message=escalated_alert["message"],
-                    severity=escalated_severity,
-                    alert_type=alert["alert_type"],
-                    metadata=escalated_alert,
-                )
-                
-                try:
-                    if config.get("channel", "").lower() == "email":
-                        success = channel.send(message)
-                    else:
-                        success = await channel.send(message)
-                    
-                    if success:
-                        stats["escalated"] += 1
-                        alert["escalated"] = True
-                        alert["severity"] = escalated_severity
-                        await self._record_alert(config.get("id"), escalated_alert)
-                    else:
-                        stats["failed"] += 1
-                except Exception:
-                    stats["failed"] += 1
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Escalation notification failed: {e}")
+                stats["failed"] += 1
         
         return stats
 

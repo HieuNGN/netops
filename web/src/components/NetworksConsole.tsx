@@ -51,10 +51,17 @@ export function NetworksConsole({ open, onClose }: Props) {
     catch { toast.error('Failed to update tags'); }
   };
 
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"? Devices will be unassigned.`)) return;
-    try { await deleteNetwork(id); toast.success(`"${name}" deleted`); }
+    setDeleteTarget({ id, name });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try { await deleteNetwork(deleteTarget.id); toast.success(`"${deleteTarget.name}" deleted`); }
     catch { toast.error('Failed to delete'); }
+    setDeleteTarget(null);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -161,6 +168,21 @@ export function NetworksConsole({ open, onClose }: Props) {
           ))}
         </div>
       </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-foreground/20 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-sm p-6 max-w-sm w-full mx-4">
+            <h3 className="font-semibold mb-2">Confirm Delete</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Delete <strong>"{deleteTarget.name}"</strong>? This will unassign all associated devices.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} className="px-3 py-1.5 text-xs rounded border border-input">Cancel</button>
+              <button onClick={confirmDelete} className="px-3 py-1.5 text-xs rounded bg-thinkpad-red text-white hover:bg-thinkpad-red-hover">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

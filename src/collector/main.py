@@ -44,6 +44,7 @@ poller: Optional[SNMPPoller] = None
 check_scheduler: Optional[Any] = None
 db_client: Optional[Any] = None
 alert_service: Optional[Any] = None
+anomaly_detector: Optional[Any] = None
 topology_subscribers: list[asyncio.Queue] = []
 event_subscribers: list[asyncio.Queue] = []
 _startup_complete: bool = False
@@ -68,7 +69,9 @@ async def broadcast_event(event_type: str, payload: dict[str, Any]) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global poller, check_scheduler, db_client, alert_service
+    global poller, check_scheduler, db_client, alert_service, anomaly_detector
+
+    escalation_task = None  # Initialize for cleanup safety
 
     # Startup
     logger.info("Starting NetOps API server...")    # Auto-migrate: run Alembic upgrade head on startup (env-gated).
@@ -116,6 +119,12 @@ async def lifespan(app: FastAPI):
 
     alert_service = AlertService(db_client)
     logger.info("Alert service initialized")
+
+    # Initialize anomaly detector
+    from src.api.services.anomaly_detector import AnomalyDetector
+
+    anomaly_detector = AnomalyDetector(window_size=100, z_threshold=3.0)
+    logger.info("Anomaly detector initialized")
 
     # Bootstrap default admin user if none exists
     try:
@@ -196,6 +205,7 @@ async def lifespan(app: FastAPI):
     poller = SNMPPoller(db_client, poll_interval=poll_interval, timeout=snmp_timeout, retries=snmp_retries)
     poller.set_topology_change_handler(on_topology_change)
     poller.set_status_change_handler(_on_status_change)
+    poller.set_anomaly_detector(anomaly_detector)
     await poller.start()
     logger.info(f"SNMP poller started with {poll_interval}s interval, timeout={snmp_timeout}s, retries={snmp_retries}s")
 
@@ -215,11 +225,11 @@ async def lifespan(app: FastAPI):
         """Check for alert escalations every 60 seconds."""
         while True:
             try:
-                await asyncio.sleep(60)
                 if alert_service:
                     stats = await alert_service.check_escalations()
                     if stats.get("escalated", 0) > 0:
                         logger.info(f"Escalated {stats['escalated']} alerts")
+                await asyncio.sleep(60)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -367,6 +377,21 @@ async def lifespan(app: FastAPI):
                     "new_gateway": gateway,
                     "source": "startup",
                 })
+                # Dispatch alert for network change at startup
+                if alert_service:
+                    try:
+                        await alert_service.dispatch_alerts([{
+                            "alert_type": "network_changed",
+                            "severity": "warning",
+                            "title": "Network Change Detected",
+                            "message": f"Host network changed from {previous.get('host_cidr', 'unknown')} to {cidr}",
+                            "old_cidr": previous.get("host_cidr"),
+                            "new_cidr": cidr,
+                            "old_gateway": previous.get("host_gateway"),
+                            "new_gateway": gateway,
+                        }])
+                    except Exception as e:
+                        logger.warning(f"Startup network change alert failed: {e}")
 
             if not should_scan:
                 logger.info(
@@ -486,6 +511,22 @@ async def lifespan(app: FastAPI):
         })
         await _register_detected_network(detected)
 
+        # Dispatch alert for network change
+        if alert_service:
+            try:
+                await alert_service.dispatch_alerts([{
+                    "alert_type": "network_changed",
+                    "severity": "warning",
+                    "title": "Network Change Detected",
+                    "message": f"Host network changed from {previous.get('host_cidr', 'unknown')} to {cidr}",
+                    "old_cidr": previous.get("host_cidr"),
+                    "new_cidr": cidr,
+                    "old_gateway": previous.get("host_gateway"),
+                    "new_gateway": gateway,
+                }])
+            except Exception as e:
+                logger.warning(f"Network change alert dispatch failed: {e}")
+
         async def _run_rescan():
             try:
                 async def _stale_emitter(payload: dict) -> None:
@@ -525,7 +566,7 @@ async def lifespan(app: FastAPI):
         await poller.stop()
     if check_scheduler:
         await check_scheduler.stop()
-    if 'escalation_task' in locals():
+    if escalation_task:
         escalation_task.cancel()
         try:
             await escalation_task
@@ -2058,6 +2099,37 @@ async def resolve_alert(alert_key: str, user: str = Depends(need_auth)):
     if not success:
         raise HTTPException(status_code=404, detail="Alert not found")
     return {"status": "resolved", "key": alert_key}
+
+
+# Anomaly Detection Endpoints
+@app.get("/anomalies")
+async def get_anomalies(user: str = Depends(need_auth)):
+    """Get all currently active anomalies."""
+    if not anomaly_detector:
+        return {"anomalies": []}
+    return {"anomalies": await anomaly_detector.get_active_anomalies()}
+
+
+@app.get("/anomalies/{metric_type}/{target_id}")
+async def get_anomaly(metric_type: str, target_id: str, user: str = Depends(need_auth)):
+    """Get anomaly status for a specific metric."""
+    if not anomaly_detector:
+        raise HTTPException(status_code=503, detail="Anomaly detector not initialized")
+    anomaly = await anomaly_detector.get_anomaly(metric_type, target_id)
+    if not anomaly:
+        raise HTTPException(status_code=404, detail="No active anomaly")
+    return anomaly
+
+
+@app.get("/anomalies/{metric_type}/{target_id}/baseline")
+async def get_baseline(metric_type: str, target_id: str, user: str = Depends(need_auth)):
+    """Get baseline statistics for a metric."""
+    if not anomaly_detector:
+        raise HTTPException(status_code=503, detail="Anomaly detector not initialized")
+    baseline = await anomaly_detector.get_baseline(metric_type, target_id)
+    if not baseline:
+        raise HTTPException(status_code=404, detail="Not enough data for baseline")
+    return baseline
 
 
 @app.post("/alerts/{alert_id}/test")

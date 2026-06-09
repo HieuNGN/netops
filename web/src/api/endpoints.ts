@@ -123,6 +123,31 @@ export interface AlertConfig {
   created: string;
 }
 
+export interface Anomaly {
+  metric_type: string;
+  target_id: string;
+  current_value: number;
+  baseline_avg: number;
+  baseline_std: number;
+  z_score: number;
+  magnitude: number;
+  direction: 'spike' | 'drop';
+  confidence: number;
+  detected_at: number;
+  sample_count: number;
+}
+
+export interface Baseline {
+  metric_type: string;
+  target_id: string;
+  avg: number;
+  std: number;
+  min: number;
+  max: number;
+  sample_count: number;
+  window_size: number;
+}
+
 export type IntegrationType = 'webhook' | 'slack' | 'telegram' | 'whatsapp' | 'email';
 
 export interface IntegrationConfig {
@@ -242,6 +267,14 @@ export const alertsApi = {
   active: () => apiClient.get<{ alerts: ActiveAlert[] }>('/api/alerts/active'),
   acknowledge: (key: string) => apiClient.post(`/api/alerts/active/${key}/acknowledge`),
   resolve: (key: string) => apiClient.post(`/api/alerts/active/${key}/resolve`),
+};
+
+export const anomaliesApi = {
+  list: () => apiClient.get<{ anomalies: Anomaly[] }>('/api/anomalies'),
+  get: (metricType: string, targetId: string) =>
+    apiClient.get<Anomaly>(`/api/anomalies/${metricType}/${targetId}`),
+  baseline: (metricType: string, targetId: string) =>
+    apiClient.get<Baseline>(`/api/anomalies/${metricType}/${targetId}/baseline`),
 };
 
 export interface MaintenanceWindow {

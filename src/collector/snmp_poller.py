@@ -70,6 +70,10 @@ class SNMPPoller:
     def set_status_change_handler(self, handler: Callable):
         self._on_status_change = handler
 
+    def set_anomaly_detector(self, detector: Any):
+        """Set the anomaly detector instance for recording metrics."""
+        self._anomaly_detector = detector
+
     async def start(self):
         if self._running:
             return
@@ -234,6 +238,24 @@ class SNMPPoller:
                 )
             except Exception as e:
                 print(f"[SNMPPoller] add_poll_result failed for {device['id']}: {e}")
+
+            # Feed response time to anomaly detector
+            if hasattr(self, '_anomaly_detector') and self._anomaly_detector:
+                try:
+                    anomaly = await self._anomaly_detector.record_value(
+                        "response_time", device["id"], response_time
+                    )
+                    if anomaly:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"Anomaly detected for {device['id']}: "
+                            f"response_time={anomaly['current_value']}ms "
+                            f"(baseline={anomaly['baseline_avg']}±{anomaly['baseline_std']}ms, "
+                            f"z={anomaly['z_score']})"
+                        )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(f"anomaly_detector.record_value failed: {e}")
 
             await self._emit_status_change(
                 device, "online", None, response_time_ms=response_time,

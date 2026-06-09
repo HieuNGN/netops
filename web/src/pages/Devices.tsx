@@ -538,7 +538,7 @@ export function Devices() {
                       <tr key={device.id} className="hover:bg-surface-hover transition-colors">
                         <td className="px-4 py-2.5">
                           {editingDeviceId === device.id ? (
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
                               <input
                                 type="text"
                                 value={editName}
@@ -548,12 +548,22 @@ export function Devices() {
                                   if (e.key === 'Escape') cancelEditName();
                                 }}
                                 autoFocus
-                                className="w-full px-2 py-1 text-sm border border-ibm-blue bg-card text-foreground rounded-sm focus:outline-none focus:ring-1 focus:ring-ibm-blue"
+                                className="flex-1 min-w-0 px-2 py-1 text-sm border border-ibm-blue bg-card text-foreground rounded-sm focus:outline-none focus:ring-1 focus:ring-ibm-blue"
                               />
-                              <button onClick={() => saveDeviceName(device.id)} className="text-cisco-green hover:text-cisco-green-hover p-0.5" title="Save">
+                              <button
+                                type="button"
+                                onClick={() => saveDeviceName(device.id)}
+                                className="shrink-0 text-cisco-green hover:text-cisco-green-hover hover:bg-cisco-green/10 p-1.5 rounded-sm"
+                                title="Save"
+                              >
                                 <Check className="h-3.5 w-3.5" />
                               </button>
-                              <button onClick={cancelEditName} className="text-thinkpad-red hover:text-thinkpad-red-hover p-0.5" title="Cancel">
+                              <button
+                                type="button"
+                                onClick={cancelEditName}
+                                className="shrink-0 text-thinkpad-red hover:text-thinkpad-red-hover hover:bg-thinkpad-red/10 p-1.5 rounded-sm"
+                                title="Cancel"
+                              >
                                 <X className="h-3.5 w-3.5" />
                               </button>
                             </div>

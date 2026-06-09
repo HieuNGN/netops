@@ -7,8 +7,10 @@ import { useChecks } from '../hooks/useChecks';
 import { useActiveAlerts } from '../hooks/useActiveAlerts';
 import { usePollHistory } from '../hooks/usePollHistory';
 import { useTopologyHistory } from '../hooks/useTopologyHistory';
+import { useAnomalies } from '../hooks/useAnomalies';
 import { NetworkPicker } from '../components/NetworkPicker';
 import { NetworksConsole } from '../components/NetworksConsole';
+import { AnomalyBadge, AnomalyCount } from '../components/AnomalyBadge';
 import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 
 type Trend = { pct: number; up: boolean };
@@ -120,6 +122,7 @@ export function Dashboard() {
   const { alerts: activeAlerts, acknowledge, resolve } = useActiveAlerts();
   const { history: pollHistory, isLoading: pollHistoryLoading } = usePollHistory(250);
   const { events: topologyEvents, isLoading: topologyEventsLoading } = useTopologyHistory({ limit: 20 });
+  const { anomalies, count: anomalyCount } = useAnomalies();
 
   const deviceStats = useMemo(() => ({
     online: devices.filter((d) => d.status === 'online').length,
@@ -207,13 +210,7 @@ export function Dashboard() {
             Network overview &middot; last poll {relativeTime(lastPoll)}
           </p>
         </div>
-        <Link
-          to="/topology"
-          className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-ibm-blue text-white rounded-sm hover:bg-ibm-blue-hover transition-colors"
-        >
-          <Activity className="h-3.5 w-3.5" />
-          Open topology
-        </Link>
+
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -258,6 +255,19 @@ export function Dashboard() {
           to="/devices"
         />
       </div>
+
+      {anomalyCount > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <AnomalyCount count={anomalyCount} />
+          </div>
+          <div className="space-y-2">
+            {anomalies.slice(0, 5).map((anomaly, i) => (
+              <AnomalyBadge key={i} anomaly={anomaly} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {activeAlerts.length > 0 && (
         <div className="mb-6 bg-card border border-border rounded-sm overflow-hidden">
