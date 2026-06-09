@@ -69,7 +69,7 @@ async def broadcast_event(event_type: str, payload: dict[str, Any]) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global poller, check_scheduler, db_client, alert_service, anomaly_detector
+    global poller, check_scheduler, db_client, alert_service, anomaly_detector, _startup_complete
 
     escalation_task = None  # Initialize for cleanup safety
 
