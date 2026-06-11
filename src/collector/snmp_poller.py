@@ -353,7 +353,7 @@ class SNMPPoller:
                 print(f"[SNMPPoller] add_poll_result failed for {device['id']}: {poll_e}")
 
             await self._emit_status_change(
-                device, new_status, error_msg, response_time_ms=0,
+                device, "offline", error_msg, response_time_ms=0,
             )
 
             return PollResult(
