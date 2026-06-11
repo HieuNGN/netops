@@ -33,9 +33,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-netops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netops}
       PGDATA: /var/lib/postgresql/data/pgdata
-    # Production: no host port binding — internal network only.
-    # Enable in development via docker-compose.override.yml.
-    ports: []
+    # Bind 5432 on host loopback so host-network backend can reach it.
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -62,18 +62,27 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: netops-backend
     restart: always
+    # Host network for both backend + frontend so SNMP/ICMP work on LAN
+  # and FE can proxy to BE via localhost with zero overhead.
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: netops-backend
+    restart: always
+    network_mode: host
     # read_only: true  # disabled — uvicorn workers need writable /dev/shm
     tmpfs:
       - /tmp:noexec,nosuid,size=100m
       - /dev/shm:noexec,nosuid,size=100m
     environment:
-      # Database
-      POSTGRES_HOST: postgres
+      # Database — postgres publishes 5432 on host loopback
+      POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-netops}
       POSTGRES_USER: ${POSTGRES_USER:-netops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netops}
-      # Server
+      # Server — binds on all host interfaces
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8000
       # SNMP
@@ -95,25 +104,23 @@ services:
       # Python
       PYTHONUNBUFFERED: 1
       PYTHONDONTWRITEBYTECODE: 1
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - backend_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
       timeout: 10s
       retries: 3
       start_period: 20s
-    networks:
-      - netops-network
 
   # --------------------------------------------------------------
   # Frontend Web Server (Nginx + React SPA)
   # --------------------------------------------------------------
+  # Host network so FE can reach BE via localhost and vice versa.
+  # Nginx binds port 80 on host directly (no Docker port mapping).
   frontend:
     build:
       context: ..
@@ -122,24 +129,21 @@ services:
         VITE_API_URL: ${VITE_API_URL:-/api}
     container_name: netops-frontend
     restart: always
+    network_mode: host
     read_only: true
     tmpfs:
       - /tmp
       - /var/cache/nginx
       - /var/run
-    ports:
-      - "${FRONTEND_PORT:-80}:80"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:80/"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:80/"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
-    networks:
-      - netops-network
 
 # ============================================================
 # Named Volumes
