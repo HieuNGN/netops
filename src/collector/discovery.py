@@ -468,6 +468,7 @@ async def rescan_and_merge(
     marked_offline, stale, by_method.
     """
     import datetime as _dt
+    import ipaddress as _ipaddr_mod
 
     # 1. probe the range
     discovered = await discover_devices(
@@ -497,9 +498,7 @@ async def rescan_and_merge(
 
     # Try to derive scanned count from CIDR (best effort)
     try:
-        import ipaddress as _ip
-        net = _ip.ip_network(network_range, strict=False)
-        stats["scanned"] = net.num_addresses - 2
+        stats["scanned"] = _ipaddr_mod.ip_network(network_range, strict=False).num_addresses - 2
     except ValueError:
         pass
 
@@ -545,16 +544,28 @@ async def rescan_and_merge(
             await db_client.create_device(create_data)
             stats["added"] += 1
 
-    # 3b. mark missing devices offline (skip manual if preserve_manual)
+    # Parse scanned CIDR so we only mark devices within it as offline
+    try:
+        scanned_network = _ipaddr_mod.ip_network(network_range, strict=False)
+    except ValueError:
+        scanned_network = None
+
+    # 3b. mark missing devices offline (only within scanned CIDR)
     for ip, dev in current_by_ip.items():
         if ip in discovered_ips:
             continue
         if dev.get("status") == "unknown":
-            # never-was-seen devices outside this range; leave alone
             continue
         if preserve_manual and dev.get("discovery_method") == "manual":
             stats["preserved"] += 1
             continue
+        # Only mark offline if device IP belongs to scanned CIDR
+        if scanned_network is not None:
+            try:
+                if _ipaddr_mod.ip_address(ip) not in scanned_network:
+                    continue  # device outside scan range — leave alone
+            except ValueError:
+                continue
         if dev.get("status") == "offline":
             # check stale threshold
             offline_since = dev.get("offline_since")
