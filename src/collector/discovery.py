@@ -204,11 +204,8 @@ async def _probe_snmp(
     host: str, community: str, timeout: float
 ) -> Optional[dict[str, Any]]:
     """Probe a single host via SNMP."""
-    # Quick TCP check on port 161 before attempting SNMP
-    port_open = await _check_port(host, 161, timeout)
-    if not port_open:
-        return None
-
+    # UDP port 161 cannot be checked with TCP open_connection.
+    # Skip the broken TCP pre-check and try SNMP directly.
     loop = asyncio.get_event_loop()
     try:
         sys_descr = await asyncio.wait_for(
