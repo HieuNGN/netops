@@ -83,7 +83,7 @@ config/
 .playwright-mcp/
 
 # --- Docs (internal plans) ---
-docs/
+# docs/
 docs_archive_2025/
 
 # --- IDE state ---
