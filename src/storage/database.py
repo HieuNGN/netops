@@ -396,11 +396,15 @@ class AsyncPostgresClient:
         return None
 
     async def list_devices(
-        self, limit: Optional[int] = None, offset: Optional[int] = None
+        self, limit: Optional[int] = None, offset: Optional[int] = None, created_by: Optional[str] = None
     ) -> list[dict[str, Any]]:
-        """List devices with optional pagination."""
-        query = "SELECT * FROM devices ORDER BY created DESC"
+        """List devices with optional pagination and owner filter."""
+        query = "SELECT * FROM devices"
         params: list[Any] = []
+        if created_by is not None:
+            query += " WHERE created_by = $1"
+            params.append(created_by)
+        query += " ORDER BY created DESC"
         if limit is not None:
             query += f" LIMIT ${len(params) + 1}"
             params.append(limit)
@@ -442,12 +446,13 @@ class AsyncPostgresClient:
         community = encrypt_field(data.get("community", "public"))
         snmpv3_auth_key = encrypt_field(data.get("snmpv3_auth_key"))
         snmpv3_priv_key = encrypt_field(data.get("snmpv3_priv_key"))
+        created_by = data.get("created_by")
         
         async with self._get_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, node_type, last_polled, snmpv3_auth_key, snmpv3_priv_key)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, node_type, last_polled, snmpv3_auth_key, snmpv3_priv_key, created_by)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 ON CONFLICT (ip_address) DO UPDATE SET
                     name = EXCLUDED.name,
                     community = EXCLUDED.community,
@@ -471,6 +476,7 @@ class AsyncPostgresClient:
                 data.get("last_polled"),
                 snmpv3_auth_key,
                 snmpv3_priv_key,
+                created_by,
             )
         return await self.get_device(device_id)
 

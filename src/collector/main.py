@@ -1459,7 +1459,7 @@ async def list_devices(limit: Optional[int] = None, offset: Optional[int] = None
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
-    return await db_client.list_devices(limit=limit, offset=offset)
+    return await db_client.list_devices(limit=limit, offset=offset, created_by=user)
 
 
 @app.get("/devices/{device_id}")
