@@ -62,14 +62,6 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: netops-backend
     restart: always
-    # Host network for both backend + frontend so SNMP/ICMP work on LAN
-  # and FE can proxy to BE via localhost with zero overhead.
-  backend:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.backend
-    container_name: netops-backend
-    restart: always
     network_mode: host
     # read_only: true  # disabled — uvicorn workers need writable /dev/shm
     tmpfs:
@@ -110,7 +102,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 15s
       timeout: 10s
       retries: 3
@@ -126,7 +118,9 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.frontend
       args:
-        VITE_API_URL: ${VITE_API_URL:-/api}
+        # Force empty so FE endpoints use bare /api/* paths.
+        # User .env may have VITE_API_URL=/api for dev; Docker build must not.
+        VITE_API_URL: ""
     container_name: netops-frontend
     restart: always
     network_mode: host
@@ -135,6 +129,7 @@ services:
       - /tmp
       - /var/cache/nginx
       - /var/run
+      - /var/log/nginx
     depends_on:
       backend:
         condition: service_healthy
