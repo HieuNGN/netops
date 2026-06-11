@@ -1128,6 +1128,9 @@ class AsyncPostgresClient:
     async def create_maintenance_window(self, data: dict[str, Any]) -> dict[str, Any]:
         """Create a maintenance window."""
         window_id = str(uuid.uuid4())
+        # asyncpg expects datetime objects for timestamptz columns
+        start_dt = datetime.fromisoformat(data["start_time"].replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(data["end_time"].replace("Z", "+00:00"))
         async with self._get_connection() as conn:
             await conn.execute(
                 """
@@ -1136,8 +1139,8 @@ class AsyncPostgresClient:
                 """,
                 window_id,
                 data["name"],
-                data["start_time"],
-                data["end_time"],
+                start_dt,
+                end_dt,
                 data.get("description", ""),
             )
         return {"id": window_id, **data}
