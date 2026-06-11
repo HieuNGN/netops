@@ -489,7 +489,7 @@ class AsyncPostgresClient:
                 encrypted_data[field] = encrypt_field(encrypted_data[field])
         
         # Convert ISO strings to datetime for timestamptz columns
-        for ts_field in ("last_scanned", "offline_since", "last_polled"):
+        for ts_field in ("last_scanned", "offline_since"):
             if ts_field in encrypted_data and encrypted_data[ts_field] is not None:
                 val = encrypted_data[ts_field]
                 if isinstance(val, str):
