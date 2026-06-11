@@ -9,6 +9,19 @@ from typing import Any, Optional
 from .spike_snmp import get_sys_descr
 from .topology_builder import classify_device
 
+
+async def _resolve_hostname(ip: str, timeout: float = 2.0) -> Optional[str]:
+    """Reverse DNS (PTR) lookup — returns hostname or None."""
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, socket.gethostbyaddr, ip),
+            timeout=timeout,
+        )[0]
+    except (OSError, asyncio.TimeoutError, socket.herror):
+        return None
+
+
 # Common ports to scan for non-SNMP discovery
 COMMON_PORTS = [22, 80, 443, 445, 3389, 8291, 8728, 8080, 53, 21, 23, 161, 162]
 
@@ -170,6 +183,10 @@ async def _probe_host(
         snmp_result = await _probe_snmp(host, community, timeout)
         if snmp_result:
             snmp_result["discovery_method"] = "snmp"
+            # Attempt hostname even for SNMP-discovered devices
+            hostname = await _resolve_hostname(host, timeout)
+            if hostname:
+                snmp_result["name"] = hostname
             return snmp_result
 
     # TCP port scan for non-SNMP alive hosts
@@ -189,6 +206,9 @@ async def _probe_host(
             if len(open_ports) > 6:
                 parts.append(f"...and {len(open_ports) - 6} more")
 
+        # Attempt reverse DNS for naming
+        hostname = await _resolve_hostname(host, timeout)
+
         return {
             "ip_address": host,
             "sys_descr": "; ".join(parts),
@@ -196,6 +216,7 @@ async def _probe_host(
             "discovery_method": "ping" if ping_alive and not open_ports else "port",
             "open_ports": open_ports,
             "status": "online",
+            "name": hostname or host,  # Use hostname or fallback to IP
         }
 
     return None
@@ -338,7 +359,8 @@ async def add_discovered_devices(
         method_used = device.get("discovery_method", "unknown")
         stats["by_method"][method_used] = stats["by_method"].get(method_used, 0) + 1
         sys_descr = device.get("sys_descr", "")
-        node_type = classify_device(sys_descr=sys_descr, name=device.get("name", ""))
+        name = device.get("name", "") or ""
+        node_type = classify_device(sys_descr=sys_descr, name=name or None)
 
         # Check if device already exists
         existing = await db_client.get_device(device["ip_address"])
@@ -346,6 +368,7 @@ async def add_discovered_devices(
             await db_client.create_device(
                 {
                     "ip_address": device["ip_address"],
+                    "name": name or device["ip_address"],
                     "community": device.get("community", community),
                     "sys_descr": sys_descr,
                     "node_type": node_type,
@@ -355,12 +378,16 @@ async def add_discovered_devices(
             )
             stats["added"] += 1
         else:
-            await db_client.update_device(existing["id"], {
+            update_data = {
                 "status": "online",
                 "sys_descr": sys_descr or existing.get("sys_descr", ""),
                 "node_type": node_type,
                 "discovery_method": method_used,
-            })
+            }
+            # Update name only if newly discovered has one and existing doesn't
+            if name and not existing.get("name"):
+                update_data["name"] = name
+            await db_client.update_device(existing["id"], update_data)
             stats["updated"] += 1
 
     return stats
@@ -480,7 +507,8 @@ async def rescan_and_merge(
         ip = dev["ip_address"]
         method_used = dev.get("discovery_method", "snmp")
         sys_descr = dev.get("sys_descr", "")
-        node_type = classify_device(sys_descr=sys_descr, name=dev.get("name", ""))
+        name = dev.get("name", "") or ""
+        node_type = classify_device(sys_descr=sys_descr, name=name or None)
         stats["by_method"][method_used] = stats["by_method"].get(method_used, 0) + 1
         existing = current_by_ip.get(ip)
         if existing:
@@ -491,6 +519,9 @@ async def rescan_and_merge(
                 "last_scanned": now_iso,
                 "discovery_method": method_used,
             }
+            # Update name only if newly discovered has one and existing doesn't
+            if name and not existing.get("name"):
+                update_data["name"] = name
             # Clear offline_since on a re-sighted device
             update_data["offline_since"] = None
             try:
@@ -501,14 +532,16 @@ async def rescan_and_merge(
                 await db_client.update_device(existing["id"], update_data)
             stats["updated"] += 1
         else:
-            await db_client.create_device({
+            create_data = {
                 "ip_address": ip,
+                "name": name or ip,  # Fallback to IP if no name
                 "community": dev.get("community", community),
                 "sys_descr": sys_descr,
                 "node_type": node_type,
                 "status": "online",
                 "discovery_method": method_used,
-            })
+            }
+            await db_client.create_device(create_data)
             stats["added"] += 1
 
     # 3b. mark missing devices offline (skip manual if preserve_manual)
