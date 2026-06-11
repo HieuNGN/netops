@@ -160,18 +160,19 @@ async def _probe_host(
     ping_alive = False
     open_ports: list[int] = []
 
-    # SNMP discovery
+    # Fast pre-check: skip SNMP/port scan if host doesn't respond to ping
+    ping_alive = await _probe_ping(host, timeout)
+    if not ping_alive:
+        return None  # host down — nothing to discover
+
+    # SNMP discovery (only on hosts that are alive)
     if method in ("snmp", "all"):
         snmp_result = await _probe_snmp(host, community, timeout)
         if snmp_result:
             snmp_result["discovery_method"] = "snmp"
             return snmp_result
 
-    # ICMP ping discovery
-    if method in ("ping", "all"):
-        ping_alive = await _probe_ping(host, timeout)
-
-    # TCP port scan discovery
+    # TCP port scan for non-SNMP alive hosts
     if method in ("port", "all"):
         open_ports = await _probe_ports(host, timeout)
 
@@ -204,13 +205,11 @@ async def _probe_snmp(
     host: str, community: str, timeout: float
 ) -> Optional[dict[str, Any]]:
     """Probe a single host via SNMP."""
-    # UDP port 161 cannot be checked with TCP open_connection.
-    # Skip the broken TCP pre-check and try SNMP directly.
     loop = asyncio.get_event_loop()
     try:
         sys_descr = await asyncio.wait_for(
             loop.run_in_executor(None, get_sys_descr, host, community),
-            timeout=timeout * 2,
+            timeout=timeout,  # use caller timeout directly (fast fail)
         )
         if sys_descr:
             return {

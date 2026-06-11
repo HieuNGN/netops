@@ -401,7 +401,30 @@ class SNMPPoller:
             )
 
     async def _check_device_reachable(self, ip: str, ports: list[int] = (80, 443, 22)) -> bool:
-        """Lightweight TCP reachability check for non-SNMP devices."""
+        """Lightweight reachability check for non-SNMP devices.
+        
+        ICMP ping first (works for phones, laptops), then TCP ports.
+        """
+        # Try ICMP ping first (most universal)
+        import platform
+        system = platform.system().lower()
+        if system == "windows":
+            ping_cmd = ["ping", "-n", "1", "-w", "2000", ip]
+        else:
+            ping_cmd = ["ping", "-c", "1", "-W", "2", ip]
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *ping_cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(process.communicate(), timeout=4)
+            if process.returncode == 0:
+                return True
+        except (asyncio.TimeoutError, FileNotFoundError, OSError):
+            pass
+
+        # Fallback to TCP ports
         for port in ports:
             try:
                 _, writer = await asyncio.wait_for(
