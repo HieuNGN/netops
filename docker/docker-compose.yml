@@ -62,9 +62,10 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: netops-backend
     restart: always
-    read_only: true
+    # read_only: true  # disabled — uvicorn workers need writable /dev/shm
     tmpfs:
-      - /tmp
+      - /tmp:noexec,nosuid,size=100m
+      - /dev/shm:noexec,nosuid,size=100m
     environment:
       # Database
       POSTGRES_HOST: postgres

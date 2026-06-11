@@ -28,13 +28,19 @@ const PRESERVE_API_PREFIX = new Set([
 // Prefix-based passthrough for groups where every sub-route has /api.
 const API_PREFIX_GROUPS = ['/api/auth/', '/api/config/'];
 
+const mkcertKey = '/home/cqrtp/.vite-plugin-mkcert/dev.pem';
+const mkcertCert = '/home/cqrtp/.vite-plugin-mkcert/cert.pem';
+const hasMkcert = fs.existsSync(mkcertKey) && fs.existsSync(mkcertCert);
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    https: {
-      key: fs.readFileSync('/home/cqrtp/.vite-plugin-mkcert/dev.pem'),
-      cert: fs.readFileSync('/home/cqrtp/.vite-plugin-mkcert/cert.pem'),
-    },
+    ...(hasMkcert ? {
+      https: {
+        key: fs.readFileSync(mkcertKey),
+        cert: fs.readFileSync(mkcertCert),
+      }
+    } : {}),
     port: 3000,
     proxy: {
       '/api': {
