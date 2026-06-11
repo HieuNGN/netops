@@ -232,9 +232,40 @@ class SNMPPoller:
 
         self.stats.total_polls += 1
         start_time = time.time()
+        ip = device["ip_address"]
+        discovery_method = device.get("discovery_method", "snmp")
+
+        # Non-SNMP devices (discovered via ping/port) skip SNMP polling.
+        # Do a lightweight TCP reachability check instead.
+        if discovery_method in ("ping", "port"):
+            reachable = await self._check_device_reachable(ip)
+            status = "discovered" if reachable else "offline"
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await self.db_client.update_device(
+                device["id"],
+                {
+                    "status": status,
+                    "last_polled": now_iso,
+                    "offline_since": None if reachable else now_iso,
+                },
+            )
+            await self.db_client.add_poll_result(
+                device["id"], status, 0, "" if reachable else "Unreachable"
+            )
+            await self._emit_status_change(
+                device, status, None if reachable else "Unreachable", response_time_ms=0,
+            )
+            return PollResult(
+                device_id=device["id"],
+                ip_address=ip,
+                success=reachable,
+                sys_descr=device.get("sys_descr", ""),
+                sys_name=device.get("name", ""),
+                neighbors=[],
+                response_time_ms=0,
+            )
 
         try:
-            ip = device["ip_address"]
 
             async with self._poll_semaphore:
                 auth = _build_auth(device)
@@ -362,6 +393,21 @@ class SNMPPoller:
                 success=False,
                 error=error_msg,
             )
+
+    async def _check_device_reachable(self, ip: str, ports: list[int] = (80, 443, 22)) -> bool:
+        """Lightweight TCP reachability check for non-SNMP devices."""
+        for port in ports:
+            try:
+                _, writer = await asyncio.wait_for(
+                    asyncio.open_connection(ip, port),
+                    timeout=2,
+                )
+                writer.close()
+                await writer.wait_closed()
+                return True
+            except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+                continue
+        return False
 
     async def _emit_status_change(
         self,
