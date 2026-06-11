@@ -14,11 +14,12 @@ async def _resolve_hostname(ip: str, timeout: float = 2.0) -> Optional[str]:
     """Reverse DNS (PTR) lookup — returns hostname or None."""
     loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             loop.run_in_executor(None, socket.gethostbyaddr, ip),
             timeout=timeout,
-        )[0]
-    except (OSError, asyncio.TimeoutError, socket.herror):
+        )
+        return result[0]
+    except (OSError, asyncio.TimeoutError, socket.herror, socket.gaierror):
         return None
 
 
