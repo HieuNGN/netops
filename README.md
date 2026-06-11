@@ -10,7 +10,7 @@ Network topology discovery, real-time monitoring, and management console — bui
 
 ## Features
 
-- **SNMPv2c Discovery** — scan subnets, auto-detect devices via ICMP + community strings
+- **SNMPv2c & v3 Discovery** — scan subnets, auto-detect devices via ICMP + community strings
 - **LLDP Topology Mapping** — build interactive force-graphs from LLDP neighbor data
 - **Real-time Dashboard** — live SSE streaming, status distribution charts, uptime bars, poll history
 - **Network Management Console** — slide-out drawer for renaming, typing (11 types), tagging, per-network device counts
@@ -64,8 +64,6 @@ docker compose up -d --build
 
 - [API Reference](docs/API_REFERENCE.md) — endpoints, types, channels
 - [Deployment](docs/DEPLOYMENT.md) — production setup
-- [SNMP Trap Setup](docs/SNMP_TRAP_SETUP.md) — trap listener config
-- [New Network Onboarding](docs/NEW_NETWORK_ONBOARDING.md) — auto-discovery flow
 
 ---
 
