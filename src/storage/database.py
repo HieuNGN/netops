@@ -402,7 +402,7 @@ class AsyncPostgresClient:
         query = "SELECT * FROM devices"
         params: list[Any] = []
         if created_by is not None:
-            query += " WHERE created_by = $1"
+            query += " WHERE (created_by = $1 OR created_by IS NULL)"
             params.append(created_by)
         query += " ORDER BY created DESC"
         if limit is not None:
