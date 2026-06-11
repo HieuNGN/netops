@@ -488,6 +488,14 @@ class AsyncPostgresClient:
             if field in encrypted_data and encrypted_data[field] is not None:
                 encrypted_data[field] = encrypt_field(encrypted_data[field])
         
+        # Convert ISO strings to datetime for timestamptz columns
+        for ts_field in ("last_scanned", "offline_since", "last_polled"):
+            if ts_field in encrypted_data and encrypted_data[ts_field] is not None:
+                val = encrypted_data[ts_field]
+                if isinstance(val, str):
+                    from datetime import datetime
+                    encrypted_data[ts_field] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        
         fields = ", ".join(f"{k} = ${i + 1}" for i, k in enumerate(encrypted_data.keys()))
         num_fields = len(encrypted_data)
         param1 = f"${num_fields + 1}"
