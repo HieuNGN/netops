@@ -270,7 +270,7 @@ class SNMPPoller:
             update_payload = {
                 "status": "online",
                 "sys_descr": sys_descr or "",
-                "last_polled": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_polled": datetime.now(timezone.utc).isoformat(),
                 "offline_since": None,
             }
             current_name = device.get("name", "").strip()
@@ -335,14 +335,14 @@ class SNMPPoller:
                     {
                         "status": "offline",
                         "offline_since": now_iso,
-                        "last_polled": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "last_polled": now_iso,
                     },
                 )
             except Exception as inner_e:
                 try:
                     await self.db_client.update_device(
                         device["id"],
-                        {"status": "offline", "last_polled": time.strftime("%Y-%m-%d %H:%M:%S")},
+                        {"status": "offline", "last_polled": now_iso},
                     )
                 except Exception:
                     print(f"[SNMPPoller] update_device failed for {device['id']}: {inner_e}")
