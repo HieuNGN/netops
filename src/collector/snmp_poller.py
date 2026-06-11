@@ -235,11 +235,17 @@ class SNMPPoller:
         ip = device["ip_address"]
         discovery_method = device.get("discovery_method", "snmp")
 
-        # Non-SNMP devices (discovered via ping/port) skip SNMP polling.
-        # Do a lightweight TCP reachability check instead.
-        if discovery_method in ("ping", "port"):
+        # Determine if device supports SNMP polling.
+        # Skip SNMP if no snmp_version configured and no community string.
+        has_snmp = bool(
+            device.get("snmp_version") in ("v2c", "v3")
+            or (device.get("community") and str(device.get("community")).strip())
+        )
+
+        if not has_snmp:
+            # Non-SNMP device: lightweight TCP reachability check
             reachable = await self._check_device_reachable(ip)
-            status = "discovered" if reachable else "offline"
+            status = "online" if reachable else "offline"
             now_iso = datetime.now(timezone.utc).isoformat()
             await self.db_client.update_device(
                 device["id"],
