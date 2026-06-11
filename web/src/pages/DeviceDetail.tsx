@@ -1,17 +1,50 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, Activity, AlertCircle } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Clock, Activity, AlertCircle, Pencil, Check, X } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useDevice } from '../hooks/useDevice';
 import { useAnomalies } from '../hooks/useAnomalies';
 import { devicesApi, anomaliesApi } from '../api/endpoints';
 import { AnomalyBadge } from '../components/AnomalyBadge';
+import { useToast } from '../components/ui';
 import type { PollHistoryEntry } from '../api/endpoints';
 
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const { data: device, isLoading, error } = useDevice(id);
+  
+  const updateTypeMutation = useMutation({
+    mutationFn: (nodeType: string) =>
+      devicesApi.update(id!, { node_type: nodeType }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      toast.success('Device type updated');
+    },
+    onError: (err: any) => {
+      toast.error('Failed to update type', err?.response?.data?.detail || err?.message);
+    },
+  });
+
+  const updateNameMutation = useMutation({
+    mutationFn: (name: string) =>
+      devicesApi.update(id!, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      toast.success('Device renamed');
+      setIsEditingName(false);
+    },
+    onError: (err: any) => {
+      toast.error('Failed to rename device', err?.response?.data?.detail || err?.message);
+    },
+  });
+
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState('');
   
   const { data: historyData } = useQuery({
     queryKey: ['device-history', id],
@@ -98,20 +131,78 @@ export function DeviceDetail() {
       <div className="bg-card rounded-lg border border-border p-6 mb-6">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">
-              {device.name || device.ip_address}
-            </h1>
-            <p className="text-sm text-muted-foreground">{device.ip_address}</p>
+            <div className="flex items-center gap-2 mb-2">
+              {!isEditingName ? (
+                <>
+                  <h1 className="text-2xl font-bold text-foreground">
+                    {device.name || device.ip_address}
+                  </h1>
+                  <button
+                    onClick={() => {
+                      setEditName(device.name || device.ip_address);
+                      setIsEditingName(true);
+                    }}
+                    className="text-muted-foreground hover:text-foreground p-1"
+                    title="Rename device"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') updateNameMutation.mutate(editName.trim());
+                      if (e.key === 'Escape') setIsEditingName(false);
+                    }}
+                    className="text-2xl font-bold text-foreground bg-card border border-input rounded-sm px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ibm-blue w-64"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => updateNameMutation.mutate(editName.trim())}
+                    className="text-success p-1 hover:bg-success/10 rounded-sm"
+                  >
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => setIsEditingName(false)}
+                    className="text-destructive p-1 hover:bg-destructive/10 rounded-sm"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">{device.ip_address}</p>
           </div>
           <div className={`px-3 py-1 rounded-full text-xs font-medium text-white ${statusColors[device.status] || 'bg-muted-foreground'}`}>
             {device.status}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
           <div>
             <p className="text-muted-foreground mb-1">SNMP Version</p>
             <p className="text-foreground font-medium">{device.snmp_version}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground mb-1">Type</p>
+            <select
+              value={device.node_type || 'device'}
+              onChange={(e) => updateTypeMutation.mutate(e.target.value)}
+              className="text-foreground font-medium bg-card border border-input rounded-sm px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ibm-blue"
+            >
+              <option value="router">Router</option>
+              <option value="switch">Switch</option>
+              <option value="firewall">Firewall</option>
+              <option value="access_point">Access Point</option>
+              <option value="server">Server</option>
+              <option value="host">Host</option>
+              <option value="end_device">End Device</option>
+            </select>
           </div>
           <div>
             <p className="text-muted-foreground mb-1">Discovery Method</p>
@@ -123,18 +214,12 @@ export function DeviceDetail() {
               {device.last_polled ? new Date(device.last_polled).toLocaleString() : 'Never'}
             </p>
           </div>
-          <div>
-            <p className="text-muted-foreground mb-1">Created</p>
-            <p className="text-foreground font-medium">
-              {new Date(device.created).toLocaleDateString()}
-            </p>
-          </div>
         </div>
 
         {device.sys_descr && (
           <div className="mt-4 pt-4 border-t border-border">
             <p className="text-muted-foreground mb-1">System Description</p>
-            <p className="text-foreground text-sm">{device.sys_descr}</p>
+            <p className="text-foreground text-xs">{device.sys_descr}</p>
           </div>
         )}
       </div>
@@ -142,8 +227,8 @@ export function DeviceDetail() {
       <div className="bg-card rounded-lg border border-border p-6">
         <div className="flex items-center gap-2 mb-4">
           <Activity className="h-5 w-5 text-foreground" />
-          <h2 className="text-lg font-semibold text-foreground">Poll History</h2>
-          <span className="text-sm text-muted-foreground">({history.length} entries)</span>
+          <h2 className="text-xs font-semibold text-foreground">Poll History</h2>
+          <span className="text-xs text-muted-foreground">({history.length} entries)</span>
         </div>
 
         {currentAnomaly && (
@@ -163,38 +248,38 @@ export function DeviceDetail() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis 
-                  dataKey="time" 
-                  stroke="var(--muted-foreground)"
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis
+                  dataKey="time"
+                  stroke="hsl(var(--muted-foreground))"
                   style={{ fontSize: '12px' }}
                 />
-                <YAxis 
-                  stroke="var(--muted-foreground)"
+                <YAxis
+                  stroke="hsl(var(--muted-foreground))"
                   style={{ fontSize: '12px' }}
-                  label={{ value: 'Response Time (ms)', angle: -90, position: 'insideLeft', fill: 'var(--muted-foreground)' }}
+                  label={{ value: 'Response Time (ms)', angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
                 />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{
-                    backgroundColor: 'var(--card)',
-                    border: '1px solid var(--border)',
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
                     borderRadius: '6px',
                   }}
                 />
                 {baseline && (
-                  <ReferenceLine 
-                    y={baseline.avg} 
-                    stroke="var(--ibm-blue)" 
+                  <ReferenceLine
+                    y={baseline.avg}
+                    stroke="hsl(var(--ibm-blue))"
                     strokeDasharray="3 3"
-                    label={{ value: `Baseline: ${baseline.avg}ms`, position: 'right', fill: 'var(--ibm-blue)', fontSize: 12 }}
+                    label={{ value: `Baseline: ${baseline.avg}ms`, position: 'right', fill: 'hsl(var(--ibm-blue))', fontSize: 12 }}
                   />
                 )}
-                <Line 
-                  type="monotone" 
-                  dataKey="responseTime" 
-                  stroke="var(--destructive)"
+                <Line
+                  type="monotone"
+                  dataKey="responseTime"
+                  stroke="hsl(var(--destructive))"
                   strokeWidth={2}
-                  dot={{ fill: 'var(--destructive)', r: 3 }}
+                  dot={{ fill: 'hsl(var(--destructive))', r: 3 }}
                   connectNulls
                 />
               </LineChart>
@@ -204,7 +289,7 @@ export function DeviceDetail() {
 
         {history.length > 0 && (
           <div className="mt-6">
-            <h3 className="text-sm font-medium text-foreground mb-3">Recent Polls</h3>
+            <h3 className="text-xs font-medium text-foreground mb-3">Recent Polls</h3>
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {history.slice(0, 20).map((entry: PollHistoryEntry) => (
                 <div
@@ -214,7 +299,7 @@ export function DeviceDetail() {
                   <div className="flex items-center gap-3">
                     <div className={`w-2 h-2 rounded-full ${statusColors[entry.status] || 'bg-muted-foreground'}`} />
                     <div>
-                      <p className="text-sm text-foreground">
+                      <p className="text-xs text-foreground">
                         {new Date(entry.polled_at).toLocaleString()}
                       </p>
                       {entry.error && (
@@ -224,11 +309,11 @@ export function DeviceDetail() {
                   </div>
                   <div className="text-right">
                     {entry.response_time_ms !== null ? (
-                      <p className="text-sm font-medium text-foreground">
+                      <p className="text-xs font-medium text-foreground">
                         {entry.response_time_ms}ms
                       </p>
                     ) : (
-                      <p className="text-sm text-muted-foreground">N/A</p>
+                      <p className="text-xs text-muted-foreground">N/A</p>
                     )}
                   </div>
                 </div>

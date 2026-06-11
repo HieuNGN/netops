@@ -66,7 +66,7 @@ export function useDeviceEvents(options: DeviceEventsOptions = {}) {
     const connect = () => {
       if (cancelled) return;
       try {
-        es = new EventSource(devicesApi.getEventsStreamUrl());
+        es = new EventSource(devicesApi.getEventsStreamUrl(), { withCredentials: true });
       } catch {
         return;
       }
@@ -110,5 +110,5 @@ export function useDeviceEvents(options: DeviceEventsOptions = {}) {
       cancelled = true;
       if (es) es.close();
     };
-  }, [queryClient, onProfileGuessed, onNetworkChanged, onDeviceStatusChange]);
+  }, [queryClient, onProfileGuessed, onNetworkChanged, onDeviceStatusChange, onDeviceFound]);
 }

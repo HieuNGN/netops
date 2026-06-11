@@ -217,12 +217,12 @@ export function Settings() {
 
       <div className="space-y-6">
         <div className="bg-card rounded-sm shadow-sm border border-border p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">
+          <h2 className="text-xs font-semibold text-foreground mb-4">
             Appearance
           </h2>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Theme Mode
               </label>
               <div className="grid grid-cols-3 gap-3">
@@ -250,10 +250,10 @@ export function Settings() {
         <div className="bg-card rounded-sm shadow-sm border border-border p-6">
           <div className="flex justify-between items-center mb-4">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">
+              <h2 className="text-xs font-semibold text-foreground">
                 Integrations
               </h2>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Global notification credentials (Telegram bot, Slack webhook,
                 Email, WhatsApp).
               </p>
@@ -276,7 +276,7 @@ export function Settings() {
               className="mb-6 bg-surface-subtle rounded-sm border border-border p-4 space-y-3"
             >
               <div className="flex justify-between items-center">
-                <h3 className="text-sm font-semibold text-foreground">
+                <h3 className="text-xs font-semibold text-foreground">
                   {editingIntegration ? "Edit Integration" : "New Integration"}
                 </h3>
                 <button
@@ -361,7 +361,7 @@ export function Settings() {
                 <button
                   type="button"
                   onClick={resetIntegrationForm}
-                  className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-sm text-sm"
+                  className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-sm text-xs"
                 >
                   Cancel
                 </button>
@@ -370,7 +370,7 @@ export function Settings() {
                   disabled={
                     createIntegration.isPending || updateIntegration.isPending
                   }
-                  className="px-3 py-1.5 bg-[#161616] text-white rounded-sm text-sm hover:bg-[#525252] disabled:opacity-50"
+                  className="px-3 py-1.5 bg-[#161616] text-white rounded-sm text-xs hover:bg-[#525252] disabled:opacity-50"
                 >
                   {editingIntegration ? "Save" : "Create"}
                 </button>
@@ -379,11 +379,11 @@ export function Settings() {
           )}
 
           {integrationsLoading ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Loading integrations…
             </p>
           ) : integrations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               No communication channel established yet. Add one above then
               create new alert rules.{" "}
               <Link
@@ -394,7 +394,7 @@ export function Settings() {
               </Link>
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {integrations.length} integration
               {integrations.length > 1 ? "s" : ""} configured.{" "}
               <Link
@@ -408,12 +408,12 @@ export function Settings() {
         </div>
 
         <div className="bg-card rounded-sm shadow-sm border border-border p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">
+          <h2 className="text-xs font-semibold text-foreground mb-4">
             SNMP Configuration
           </h2>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Default Community
               </label>
               <select
@@ -429,7 +429,7 @@ export function Settings() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-xs font-medium text-foreground mb-1">
                   Timeout (seconds)
                 </label>
                 <div className="flex items-stretch">
@@ -478,7 +478,7 @@ export function Settings() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-xs font-medium text-foreground mb-1">
                   Retries
                 </label>
                 <div className="flex items-stretch">
@@ -531,12 +531,12 @@ export function Settings() {
         </div>
 
         <div className="bg-card rounded-sm shadow-sm border border-border p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">
+          <h2 className="text-xs font-semibold text-foreground mb-4">
             Polling Settings
           </h2>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Topology Polling Interval (seconds)
               </label>
               <div className="flex items-stretch">
@@ -591,7 +591,7 @@ export function Settings() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1">
+              <label className="block text-xs font-medium text-foreground mb-1">
                 Service Check Default Interval (seconds)
               </label>
               <div className="flex items-stretch">
@@ -650,7 +650,7 @@ export function Settings() {
 
         <div className="bg-card rounded-sm shadow-sm border border-border p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-foreground">
+            <h2 className="text-xs font-semibold text-foreground">
               API Connection
             </h2>
             <button
@@ -662,7 +662,7 @@ export function Settings() {
             </button>
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
+            <label className="block text-xs font-medium text-foreground mb-1">
               Backend API URL
             </label>
             <input
@@ -671,7 +671,7 @@ export function Settings() {
               onChange={(e) => setApiUrl(e.target.value)}
               className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm focus:ring-1 focus:ring-ring"
             />
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Changes require a page reload
             </p>
           </div>

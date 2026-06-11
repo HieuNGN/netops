@@ -100,6 +100,22 @@ async def get_sys_descr_async(host: str, auth_data: Any) -> Optional[str]:
     return None
 
 
+async def get_sys_name_async(host: str, auth_data: Any) -> Optional[str]:
+    """Fetch SNMP sysName (OID 1.3.6.1.2.1.1.5.0)."""
+    error_indication, error_status, error_index, var_binds = await _get_async(
+        host, auth_data, "1.3.6.1.2.1.1.5.0"
+    )
+    if error_indication or error_status:
+        raise SNMPRequestError(
+            f"sysName failed for {host}: "
+            f"indication={error_indication!r} status={error_status!r}"
+        )
+    for var_bind in var_binds:
+        name = str(var_bind[1]).strip()
+        return name if name else None
+    return None
+
+
 def _extract_lldp_index(oid_str: str) -> str:
     parts = oid_str.split(".")
     return parts[-1] if parts else ""

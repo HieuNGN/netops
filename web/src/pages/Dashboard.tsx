@@ -41,7 +41,7 @@ function StatCard({
         {loading ? (
           <div className="h-9 w-20 mt-2 bg-muted animate-pulse rounded-sm" />
         ) : (
-          <p className="text-3xl font-semibold text-foreground mt-1.5 tabular-nums">{value}</p>
+          <p className="text-2xl font-semibold text-foreground mt-1.5 tabular-nums">{value}</p>
         )}
         {subtext && <p className="text-xs text-muted-foreground mt-1.5">{subtext}</p>}
         {trend && !loading && (
@@ -206,7 +206,7 @@ export function Dashboard() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             Network overview &middot; last poll {relativeTime(lastPoll)}
           </p>
         </div>
@@ -272,7 +272,7 @@ export function Dashboard() {
       {activeAlerts.length > 0 && (
         <div className="mb-6 bg-card border border-border rounded-sm overflow-hidden">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border bg-surface-subtle">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <h2 className="text-xs font-semibold text-foreground flex items-center gap-2">
               <Bell className="h-4 w-4 text-thinkpad-red" />
               Active Alerts
               <span className="px-1.5 py-0.5 bg-thinkpad-red text-white text-xs rounded-sm font-medium tabular-nums">
@@ -306,7 +306,7 @@ export function Dashboard() {
                     {alert.severity}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground truncate">{alert.title}</p>
+                    <p className="text-xs font-medium text-foreground truncate">{alert.title}</p>
                     <p className="text-xs text-muted-foreground truncate">{alert.message}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {alert.status === 'acknowledged' && (
@@ -343,7 +343,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <div className="lg:col-span-2 bg-card border border-border rounded-sm">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <h2 className="text-xs font-semibold text-foreground flex items-center gap-2">
               <Activity className="h-4 w-4 text-cisco-teal" />
               Poll Success Rate
               <span className="text-xs text-muted-foreground font-normal">(last hour, 5-min buckets)</span>
@@ -356,7 +356,7 @@ export function Dashboard() {
             {pollHistoryLoading ? (
               <Skeleton className="h-[220px] w-full" />
             ) : pollSuccessSeries.every((b) => b.success === 0 && b.failed === 0) ? (
-              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">
+              <div className="h-[220px] flex items-center justify-center text-xs text-muted-foreground">
                 No poll history recorded yet
               </div>
             ) : (
@@ -383,12 +383,12 @@ export function Dashboard() {
 
         <div className="bg-card border border-border rounded-sm">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground">Device Status</h2>
+            <h2 className="text-xs font-semibold text-foreground">Device Status</h2>
             <Link to="/devices" className="text-xs text-info hover:underline">View all &rarr;</Link>
           </div>
           <div className="p-5">
             {deviceStatusData.length === 0 ? (
-              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">
+              <div className="h-[220px] flex items-center justify-center text-xs text-muted-foreground">
                 No devices yet
               </div>
             ) : (
@@ -435,14 +435,14 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <div className="bg-card border border-border rounded-sm">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground">Networks</h2>
+            <h2 className="text-xs font-semibold text-foreground">Networks</h2>
           </div>
           <div className="p-5 space-y-3">
             <NetworkPicker />
             <div className="pt-2 border-t border-border">
               <button
                 onClick={() => setDrawerOpen(true)}
-                className="w-full inline-flex items-center justify-center gap-1.5 text-sm px-3 py-1.5 bg-ibm-blue text-white rounded-sm hover:bg-ibm-blue-hover transition-colors"
+                className="w-full inline-flex items-center justify-center gap-1.5 text-xs px-3 py-1.5 bg-ibm-blue text-white rounded-sm hover:bg-ibm-blue-hover transition-colors"
               >
                 <Settings className="h-3.5 w-3.5" />
                 Manage Networks
@@ -453,7 +453,7 @@ export function Dashboard() {
 
         <div className="bg-card border border-border rounded-sm">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground">Recent Devices</h2>
+            <h2 className="text-xs font-semibold text-foreground">Recent Devices</h2>
             <Link to="/devices" className="text-xs text-info hover:underline">View all &rarr;</Link>
           </div>
           <div className="p-2">
@@ -462,7 +462,7 @@ export function Dashboard() {
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
               </div>
             ) : devices.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-muted-foreground text-center">
+              <div className="px-5 py-8 text-xs text-muted-foreground text-center">
                 No devices yet. <Link to="/devices" className="text-info hover:underline">Add one</Link>.
               </div>
             ) : (
@@ -474,7 +474,7 @@ export function Dashboard() {
                     className="flex items-center justify-between px-3 py-2.5 hover:bg-surface-hover transition-colors"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground truncate">
+                      <p className="text-xs font-medium text-foreground truncate">
                         {device.name || device.ip_address}
                       </p>
                       <p className="text-xs text-muted-foreground font-mono truncate">
@@ -491,7 +491,7 @@ export function Dashboard() {
 
         <div className="bg-card border border-border rounded-sm">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground">Service Checks</h2>
+            <h2 className="text-xs font-semibold text-foreground">Service Checks</h2>
             <Link to="/checks" className="text-xs text-info hover:underline">View all &rarr;</Link>
           </div>
           <div className="p-2">
@@ -500,7 +500,7 @@ export function Dashboard() {
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
               </div>
             ) : checks.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-muted-foreground text-center">
+              <div className="px-5 py-8 text-xs text-muted-foreground text-center">
                 No service checks yet. <Link to="/checks" className="text-info hover:underline">Add one</Link>.
               </div>
             ) : (
@@ -508,7 +508,7 @@ export function Dashboard() {
                 {checks.slice(0, 5).map((check) => (
                   <div key={check.id} className="flex items-center justify-between px-3 py-2.5">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground truncate">{check.name}</p>
+                      <p className="text-xs font-medium text-foreground truncate">{check.name}</p>
                       <p className="text-xs text-muted-foreground font-mono truncate">
                         {check.check_type} &middot; {check.target}
                       </p>
@@ -533,14 +533,14 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <div className="lg:col-span-2 bg-card border border-border rounded-sm">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground">Device Uptime</h2>
+            <h2 className="text-xs font-semibold text-foreground">Device Uptime</h2>
             <span className="text-xs text-muted-foreground">last 250 polls</span>
           </div>
           <div className="p-5">
             {pollHistoryLoading ? (
               <Skeleton className="h-[220px] w-full" />
             ) : uptimeData.length === 0 ? (
-              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">
+              <div className="h-[220px] flex items-center justify-center text-xs text-muted-foreground">
                 No poll history available
               </div>
             ) : (
@@ -561,7 +561,7 @@ export function Dashboard() {
                   <Bar
                     dataKey="uptime"
                     radius={[0, 2, 2, 0]}
-                    background={{ fill: 'hsl(var(--muted))', radius: 2 }}
+                    background={{ fill: 'hsl(var(--border))', radius: 2 }}
                   >
                     {uptimeData.map((d, i) => (
                       <Cell
@@ -578,7 +578,7 @@ export function Dashboard() {
 
         <div className="bg-card border border-border rounded-sm">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <h2 className="text-xs font-semibold text-foreground flex items-center gap-2">
               <History className="h-4 w-4 text-cisco-teal" />
               Recent Topology
             </h2>
@@ -590,7 +590,7 @@ export function Dashboard() {
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
               </div>
             ) : topologyEvents.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-muted-foreground text-center">
+              <div className="px-5 py-8 text-xs text-muted-foreground text-center">
                 No topology changes recorded
               </div>
             ) : (

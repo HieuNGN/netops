@@ -325,67 +325,6 @@ class TestServiceCheckEndpoints:
         assert response.json()["status"] == "deleted"
 
 
-class TestAlertEndpoints:
-    """Tests for alert configuration endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_list_alerts_empty(self, client):
-        """Test listing alerts when empty."""
-        response = await client.get("/alerts")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-    @pytest.mark.asyncio
-    async def test_create_webhook_alert(self, client):
-        """Test creating webhook alert."""
-        import uuid
-        alert_data = {
-            "name": f"webhook-test-alert-{uuid.uuid4().hex[:8]}",
-            "alert_type": "device_down",
-            "channel": "webhook",
-            "config": {"url": f"https://httpbin.org/post-{uuid.uuid4().hex[:8]}"},
-            "enabled": True,
-        }
-        response = await client.post("/alerts", json=alert_data)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["name"] == alert_data["name"]
-        assert data["channel"] == "webhook"
-
-    @pytest.mark.asyncio
-    async def test_create_slack_alert(self, client):
-        """Test creating Slack alert."""
-        import uuid
-        alert_data = {
-            "name": f"slack-test-alert-{uuid.uuid4().hex[:8]}",
-            "alert_type": "topology_change",
-            "channel": "slack",
-            "config": {"webhook_url": f"https://hooks.slack.com/services/{uuid.uuid4().hex[:8]}"},
-            "enabled": True,
-        }
-        response = await client.post("/alerts", json=alert_data)
-        assert response.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_create_invalid_channel(self, client):
-        """Test creating alert with invalid channel returns 400."""
-        import uuid
-        response = await client.post("/alerts", json={
-            "name": f"invalid-alert-{uuid.uuid4().hex[:8]}",
-            "alert_type": "device_down",
-            "channel": "invalid_channel",
-            "config": {},
-        })
-        assert response.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_get_alert_history(self, client):
-        """Test getting alert history."""
-        response = await client.get("/alerts/history")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
 
 
 class TestStatsEndpoint:

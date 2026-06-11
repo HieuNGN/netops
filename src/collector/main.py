@@ -93,26 +93,38 @@ async def lifespan(app: FastAPI):
     # Initialize database client.
     #
     # PostgreSQL is the primary backend. SQLite is available as an
-    # opt-in fallback for zero-dependency dev (NETOPS_USE_SQLITE=1).
-    database_url = os.environ.get("DATABASE_URL")
-    if database_url:
-        from src.storage.database import AsyncPostgresClient
-        try:
-            db_client = AsyncPostgresClient(connection_string=database_url)
-            await db_client.connect()
-            await db_client.init_db()
-            logger.info("PostgreSQL connected via DATABASE_URL")
-        except Exception as e:
-            logger.error(f"DATABASE_URL set but PostgreSQL unreachable: {e}")
-            raise RuntimeError(
-                f"DATABASE_URL is set but PostgreSQL is unreachable: {e}"
-            )
-    else:
-        from src.storage.database import AsyncPostgresClient
-        db_client = AsyncPostgresClient()
+    # opt-in fallback for zero-dependency dev and test isolation
+    # (NETOPS_USE_SQLITE=1).  When active, NETOPS_SQLITE_PATH can
+    # override the default data/netops.db location (used by test
+    # fixtures to avoid leaking into the real DB).
+    if os.environ.get("NETOPS_USE_SQLITE") == "1":
+        from src.storage.sqlite_client import AsyncSQLiteClient
+
+        sqlite_path = os.environ.get("NETOPS_SQLITE_PATH") or "data/netops.db"
+        db_client = AsyncSQLiteClient(db_path=sqlite_path)
         await db_client.connect()
         await db_client.init_db()
-        logger.info("PostgreSQL connected with defaults")
+        logger.info(f"SQLite connected (NETOPS_USE_SQLITE=1, {sqlite_path})")
+    else:
+        database_url = os.environ.get("DATABASE_URL")
+        if database_url:
+            from src.storage.database import AsyncPostgresClient
+            try:
+                db_client = AsyncPostgresClient(connection_string=database_url)
+                await db_client.connect()
+                await db_client.init_db()
+                logger.info("PostgreSQL connected via DATABASE_URL")
+            except Exception as e:
+                logger.error(f"DATABASE_URL set but PostgreSQL unreachable: {e}")
+                raise RuntimeError(
+                    f"DATABASE_URL is set but PostgreSQL is unreachable: {e}"
+                )
+        else:
+            from src.storage.database import AsyncPostgresClient
+            db_client = AsyncPostgresClient()
+            await db_client.connect()
+            await db_client.init_db()
+            logger.info("PostgreSQL connected with defaults")
 
     # Initialize alert service
     from src.api.services.alert_service import AlertService
@@ -417,6 +429,14 @@ async def lifespan(app: FastAPI):
                 removed = await db_client.bulk_delete_devices(mock_ids)
                 logger.info(f"Auto-removed {removed} stale mock devices on startup")
 
+            if hasattr(db_client, "prune_orphan_topology"):
+                try:
+                    orphaned = await db_client.prune_orphan_topology()
+                    if orphaned:
+                        logger.info(f"Pruned {orphaned} orphan topology nodes on startup")
+                except Exception as e:
+                    logger.warning(f"prune_orphan_topology failed: {e}")
+
             if host_ip and hasattr(db_client, "get_device"):
                 existing_host = await db_client.get_device(host_ip)
                 if not existing_host:
@@ -439,15 +459,21 @@ async def lifespan(app: FastAPI):
             async def _stale_emitter(payload: dict) -> None:
                 await broadcast_event("device_stale", payload)
 
+            async def _device_found_emitter(payload: dict) -> None:
+                event_type = payload.pop("type", "device_found")
+                await broadcast_event(event_type, payload)
+
             if mode == "replace":
                 stats = await rescan_and_replace(
                     db_client, cidr, timeout=2.0, max_concurrent=50, method="all",
+                    device_found_event_emitter=_device_found_emitter,
                 )
             else:
                 stats = await rescan_and_merge(
                     db_client, cidr, timeout=2.0, max_concurrent=50, method="all",
                     preserve_manual=True,
                     stale_event_emitter=_stale_emitter,
+                    device_found_event_emitter=_device_found_emitter,
                 )
             logger.info(
                 f"Auto-rescan {cidr} (mode={mode}): "
@@ -531,6 +557,9 @@ async def lifespan(app: FastAPI):
             try:
                 async def _stale_emitter(payload: dict) -> None:
                     await broadcast_event("device_stale", payload)
+                async def _device_found_emitter(payload: dict) -> None:
+                    event_type = payload.pop("type", "device_found")
+                    await broadcast_event(event_type, payload)
                 await broadcast_event("rescan_started", {
                     "network_range": cidr, "source": "watcher", "mode": "merge",
                 })
@@ -538,6 +567,7 @@ async def lifespan(app: FastAPI):
                     db_client, cidr, timeout=2.0, max_concurrent=50, method="all",
                     preserve_manual=True,
                     stale_event_emitter=_stale_emitter,
+                    device_found_event_emitter=_device_found_emitter,
                 )
                 await broadcast_event("devices_refresh", {
                     "stats": stats, "source": "network_watcher", "cidr": cidr,
@@ -617,6 +647,7 @@ class DeviceCreate(BaseModel):
     snmpv3_auth_key: Optional[str] = None
     snmpv3_priv_protocol: Optional[str] = None
     snmpv3_priv_key: Optional[str] = None
+    node_type: Optional[str] = None
 
 
 class DeviceUpdate(BaseModel):
@@ -629,6 +660,7 @@ class DeviceUpdate(BaseModel):
     snmpv3_auth_key: Optional[str] = None
     snmpv3_priv_protocol: Optional[str] = None
     snmpv3_priv_key: Optional[str] = None
+    node_type: Optional[str] = None
 
 
 class BulkImportRequest(BaseModel):
@@ -1567,12 +1599,16 @@ async def create_network(network: NetworkCreate, user: str = Depends(need_auth))
     if cidr:
         async def _auto_scan():
             try:
+                async def _device_found_emitter(payload: dict) -> None:
+                    event_type = payload.pop("type", "device_found")
+                    await broadcast_event(event_type, payload)
                 await broadcast_event(
                     "rescan_started",
                     {"network_range": cidr, "network_id": created.get("id")},
                 )
                 stats = await add_discovered_devices(
-                    db_client, cidr, timeout=2.0, max_concurrent=50, method="all"
+                    db_client, cidr, timeout=2.0, max_concurrent=50, method="all",
+                    device_found_event_emitter=_device_found_emitter,
                 )
                 await broadcast_event(
                     "rescan_completed",
@@ -1691,11 +1727,10 @@ async def get_topology_snapshot(event_id: int, user: str = Depends(need_auth)):
         raise HTTPException(status_code=404, detail="Event not found")
 
     # Return current topology as the "after" snapshot
-    nodes = await db_client.get_topology_nodes()
-    links = await db_client.get_topology_links()
+    topology = await db_client.list_topology()
     return {
         "event": event[0],
-        "topology": {"nodes": nodes, "links": links},
+        "topology": topology,
     }
 
 
@@ -1718,6 +1753,10 @@ async def discover_network(request: DiscoveryRequest, user: str = Depends(need_a
     except ValueError:
         pass
 
+    async def _device_found_emitter(payload: dict) -> None:
+        event_type = payload.pop("type", "device_found")
+        await broadcast_event(event_type, payload)
+
     stats = await add_discovered_devices(
         db_client,
         request.network_range,
@@ -1725,6 +1764,7 @@ async def discover_network(request: DiscoveryRequest, user: str = Depends(need_a
         timeout=2.0,
         max_concurrent=50,
         method=request.method,
+        device_found_event_emitter=_device_found_emitter,
     )
 
     await broadcast_event("devices_refresh", {"stats": stats, "source": "discover"})
@@ -1771,6 +1811,10 @@ async def rescan_network(request: RescanRequest, user: str = Depends(need_auth))
         # Fan out via the global SSE event channel.
         await broadcast_event("device_stale", payload)
 
+    async def _device_found_emitter(payload: dict) -> None:
+        event_type = payload.pop("type", "device_found")
+        await broadcast_event(event_type, payload)
+
     if request.mode == "replace":
         stats = await rescan_and_replace(
             db_client,
@@ -1779,7 +1823,7 @@ async def rescan_network(request: RescanRequest, user: str = Depends(need_auth))
             timeout=2.0,
             max_concurrent=50,
             method=request.method,
-            device_found_event_emitter=broadcast_event,
+            device_found_event_emitter=_device_found_emitter,
         )
     else:
         stats = await rescan_and_merge(
@@ -1791,7 +1835,7 @@ async def rescan_network(request: RescanRequest, user: str = Depends(need_auth))
             method=request.method,
             preserve_manual=True,
             stale_event_emitter=_stale_emitter,
-            device_found_event_emitter=broadcast_event,
+            device_found_event_emitter=_device_found_emitter,
         )
 
     await broadcast_event(

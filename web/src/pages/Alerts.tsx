@@ -10,6 +10,7 @@ import {
   X,
   Pencil,
   AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { alertsApi, integrationsApi, maintenanceWindowsApi } from "../api";
@@ -205,19 +206,20 @@ export function Alerts() {
     },
   });
 
-  // Integration management state (Integrations tab)
+  // Channel management state (Channels tab)
   const [showIntegForm, setShowIntegForm] = useState(false);
   const [editingInteg, setEditingInteg] = useState<any | null>(null);
   const [integType, setIntegType] = useState<IntegrationType>("telegram");
   const [integName, setIntegName] = useState("");
   const [integSecrets, setIntegSecrets] = useState<Record<string, string>>({});
+  const [deleteIntegTarget, setDeleteIntegTarget] = useState<any | null>(null);
 
   const createInteg = useMutation({
     mutationFn: (data: any) => integrationsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["integrations"] });
       resetIntegForm();
-      toast.success("Integration created");
+      toast.success("Channel created");
     },
     onError: (e: any) => {
       toast.error(e?.response?.data?.detail || "Create failed");
@@ -230,7 +232,7 @@ export function Alerts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["integrations"] });
       resetIntegForm();
-      toast.success("Integration updated");
+      toast.success("Channel updated");
     },
     onError: (e: any) => {
       toast.error(e?.response?.data?.detail || "Update failed");
@@ -442,7 +444,7 @@ export function Alerts() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Alerts</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             {derivedTab === "active" && activeAlerts.length === 0
               ? "No active alerts · all systems clear"
               : derivedTab === "active"
@@ -450,14 +452,14 @@ export function Alerts() {
                 : derivedTab === "rules"
                   ? `${alerts.length} rule${alerts.length === 1 ? "" : "s"}`
                   : derivedTab === "integrations"
-                    ? `${allIntegrations.length} integration${allIntegrations.length === 1 ? "" : "s"}`
+                    ? `${allIntegrations.length} channel${allIntegrations.length === 1 ? "" : "s"}`
                     : `${windows.length} maintenance window${windows.length === 1 ? "" : "s"}`}
           </p>
         </div>
         {derivedTab === "rules" && (
           <button
             onClick={() => setShowAddForm(true)}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
           >
             <Plus className="h-3.5 w-3.5" />
             <span>Add Alert</span>
@@ -466,7 +468,7 @@ export function Alerts() {
         {derivedTab === "windows" && (
           <button
             onClick={() => setShowWindowForm(true)}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
           >
             <Plus className="h-3.5 w-3.5" />
             <span>Add Window</span>
@@ -478,10 +480,10 @@ export function Alerts() {
               resetIntegForm();
               setShowIntegForm(true);
             }}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span>Add Integration</span>
+            <span>Add Channel</span>
           </button>
         )}
       </div>
@@ -492,7 +494,7 @@ export function Alerts() {
           {[
             { key: "active", label: "Active Alerts", icon: Bell, count: activeAlerts.length, countVariant: 'danger' as const },
             { key: "rules", label: "Alert Rules", icon: Bell, count: alerts.length, countVariant: 'neutral' as const },
-            { key: "integrations", label: "Integrations", icon: AlertCircle, count: allIntegrations.length, countVariant: 'neutral' as const },
+            { key: "integrations", label: "Channels", icon: AlertCircle, count: allIntegrations.length, countVariant: 'neutral' as const },
             { key: "windows", label: "Maintenance Windows", icon: Clock, count: windows.length, countVariant: 'neutral' as const },
           ].map((t) => {
             const isActive = derivedTab === t.key;
@@ -501,7 +503,7 @@ export function Alerts() {
               <button
                 key={t.key}
                 onClick={() => switchTab(t.key as any)}
-                className={`flex items-center space-x-2 py-3 px-3 border-b-2 text-sm font-medium transition-colors ${
+                className={`flex items-center space-x-2 py-3 px-3 border-b-2 text-xs font-medium transition-colors ${
                   isActive
                     ? "border-ibm-blue text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
@@ -532,7 +534,7 @@ export function Alerts() {
           {derivedShowAdd && (
             <div className="mb-6 bg-card rounded-sm shadow-sm border border-border p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-foreground">
+                <h2 className="text-xs font-semibold text-foreground">
                   {editingAlertId ? "Edit Alert Rule" : "Add Alert Rule"}
                 </h2>
                 <button
@@ -547,7 +549,7 @@ export function Alerts() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Name *
                     </label>
                     <input
@@ -562,7 +564,7 @@ export function Alerts() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Alert Type *
                     </label>
                     <select
@@ -580,7 +582,7 @@ export function Alerts() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Channel *
                     </label>
                     <select
@@ -602,7 +604,7 @@ export function Alerts() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Enabled
                     </label>
                     <label className="flex items-center space-x-2 px-3 py-2 border border-input bg-card rounded-sm">
@@ -616,13 +618,13 @@ export function Alerts() {
                           })
                         }
                       />
-                      <span className="text-sm text-foreground">
+                      <span className="text-xs text-foreground">
                         {newAlert.enabled ? "Enabled" : "Disabled"}
                       </span>
                     </label>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Escalation (minutes)
                       <span className="text-xs text-muted-foreground ml-2">
                         (optional)
@@ -643,7 +645,7 @@ export function Alerts() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Escalated Severity
                       <span className="text-xs text-muted-foreground ml-2">
                         (if escalation enabled)
@@ -676,7 +678,7 @@ export function Alerts() {
                     <div className="bg-surface-subtle p-4 rounded-sm space-y-3">
                       {channel.supportsIntegration && (
                         <div>
-                          <label className="block text-sm font-medium text-foreground mb-1">
+                          <label className="block text-xs font-medium text-foreground mb-1">
                             Use Integration
                             <span className="text-xs text-muted-foreground ml-2">
                               (optional — credentials from Settings)
@@ -716,7 +718,7 @@ export function Alerts() {
                       {!newAlert.integration_id &&
                         channel.fields.length > 0 && (
                           <div>
-                            <p className="text-sm font-medium text-foreground mb-2">
+                            <p className="text-xs font-medium text-foreground mb-2">
                               Inline channel config
                             </p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -786,7 +788,7 @@ export function Alerts() {
           {/* Alerts List */}
           <div className="bg-card border border-border rounded-sm overflow-hidden">
             <div className="px-5 py-3 border-b border-border bg-surface-subtle flex justify-between items-center">
-              <h2 className="text-sm font-semibold text-foreground">
+              <h2 className="text-xs font-semibold text-foreground">
                 Configured Rules
               </h2>
               <span className="text-xs text-muted-foreground tabular-nums">
@@ -795,13 +797,13 @@ export function Alerts() {
             </div>
             <div className="divide-y divide-border">
               {isLoading ? (
-                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+                <div className="px-6 py-12 text-center text-xs text-muted-foreground">
                   Loading alerts…
                 </div>
               ) : alerts.length === 0 ? (
                 <div className="px-6 py-12 text-center">
                   <Bell className="h-6 w-6 text-muted-foreground mx-auto mb-2 opacity-50" />
-                  <p className="text-sm font-medium text-foreground">No alert rules yet</p>
+                  <p className="text-xs font-medium text-foreground">No alert rules yet</p>
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                     Create a rule to send notifications when devices go down, links flap, or checks fail.
                   </p>
@@ -892,16 +894,16 @@ export function Alerts() {
       {derivedTab === "active" && (
         <div className="bg-card border border-border rounded-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-border bg-surface-subtle flex justify-between items-center">
-            <h2 className="text-sm font-semibold text-foreground">Firing Now</h2>
+            <h2 className="text-xs font-semibold text-foreground">Firing Now</h2>
             <span className="text-xs text-muted-foreground">refreshes every 15s</span>
           </div>
           <div className="divide-y divide-border">
             {activeAlertsLoading ? (
-              <div className="px-6 py-12 text-center text-sm text-muted-foreground">Loading alerts…</div>
+              <div className="px-6 py-12 text-center text-xs text-muted-foreground">Loading alerts…</div>
             ) : activeAlerts.length === 0 ? (
               <div className="px-6 py-12 text-center">
                 <Check className="h-6 w-6 text-cisco-green mx-auto mb-2" />
-                <p className="text-sm font-medium text-foreground">All systems clear</p>
+                <p className="text-xs font-medium text-foreground">All systems clear</p>
                 <p className="text-xs text-muted-foreground mt-1">No active alerts. Configured rules will appear here when triggered.</p>
               </div>
             ) : (
@@ -929,7 +931,7 @@ export function Alerts() {
                       </span>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-foreground">
+                      <p className="text-xs font-medium text-foreground">
                         {alert.title}
                       </p>
                       <p className="text-xs text-muted-foreground">
@@ -976,13 +978,13 @@ export function Alerts() {
           {/* Add Maintenance Window Form */}
           {showWindowForm && (
             <div className="mb-6 bg-card rounded-sm shadow-sm border border-border p-6">
-              <h2 className="text-lg font-semibold text-foreground mb-4">
+              <h2 className="text-xs font-semibold text-foreground mb-4">
                 Add Maintenance Window
               </h2>
               <form onSubmit={handleWindowSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Name *
                     </label>
                     <input
@@ -997,7 +999,7 @@ export function Alerts() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Start Time *
                     </label>
                     <input
@@ -1014,7 +1016,7 @@ export function Alerts() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       End Time *
                     </label>
                     <input
@@ -1028,7 +1030,7 @@ export function Alerts() {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Description
                     </label>
                     <textarea
@@ -1070,7 +1072,7 @@ export function Alerts() {
           {/* Maintenance Windows List */}
           <div className="bg-card border border-border rounded-sm overflow-hidden">
             <div className="px-5 py-3 border-b border-border bg-surface-subtle flex justify-between items-center">
-              <h2 className="text-sm font-semibold text-foreground">
+              <h2 className="text-xs font-semibold text-foreground">
                 Scheduled Windows
               </h2>
               <span className="text-xs text-muted-foreground tabular-nums">
@@ -1079,13 +1081,13 @@ export function Alerts() {
             </div>
             <div className="divide-y divide-border">
               {windowsLoading ? (
-                <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+                <div className="px-6 py-12 text-center text-xs text-muted-foreground">
                   Loading windows…
                 </div>
               ) : windows.length === 0 ? (
                 <div className="px-6 py-12 text-center">
                   <Clock className="h-6 w-6 text-muted-foreground mx-auto mb-2 opacity-50" />
-                  <p className="text-sm font-medium text-foreground">No maintenance windows scheduled</p>
+                  <p className="text-xs font-medium text-foreground">No maintenance windows scheduled</p>
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                     Add a window to suppress alerts during planned downtime.
                   </p>
@@ -1113,7 +1115,7 @@ export function Alerts() {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-muted-foreground mt-1">
+                          <p className="text-xs text-muted-foreground mt-1">
                             {new Date(window.start_time).toLocaleString()} —{" "}
                             {new Date(window.end_time).toLocaleString()}
                           </p>
@@ -1142,12 +1144,12 @@ export function Alerts() {
 
       {derivedTab === "integrations" && (
         <>
-          {/* Add/Edit Integration Form */}
+          {/* Add/Edit Channel Form */}
           {showIntegForm && (
             <div className="mb-6 bg-card rounded-sm shadow-sm border border-border p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-foreground">
-                  {editingInteg ? "Edit Integration" : "New Integration"}
+                <h2 className="text-xs font-semibold text-foreground">
+                  {editingInteg ? "Edit Channel" : "New Channel"}
                 </h2>
                 <button
                   type="button"
@@ -1161,7 +1163,7 @@ export function Alerts() {
               <form onSubmit={handleIntegSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Type
                     </label>
                     <select
@@ -1181,7 +1183,7 @@ export function Alerts() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">
+                    <label className="block text-xs font-medium text-foreground mb-1">
                       Name *
                     </label>
                     <input
@@ -1256,8 +1258,8 @@ export function Alerts() {
           {/* Integration list */}
           <div className="bg-card border border-border rounded-sm overflow-hidden">
             <div className="px-5 py-3 border-b border-border bg-surface-subtle">
-              <h2 className="text-sm font-semibold text-foreground">
-                Notification Integrations
+              <h2 className="text-xs font-semibold text-foreground">
+                Notification Channels
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
                 Global notification credentials. Alert rules reference these from the Alert Rules tab.
@@ -1266,9 +1268,9 @@ export function Alerts() {
             {allIntegrations.length === 0 ? (
               <div className="px-6 py-12 text-center">
                 <AlertCircle className="h-6 w-6 text-muted-foreground mx-auto mb-2 opacity-50" />
-                <p className="text-sm font-medium text-foreground">No communication channel established</p>
+                <p className="text-xs font-medium text-foreground">No communication channel established</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Add an integration, then create alert rules that reference it.
+                  Add a channel, then create alert rules that reference it.
                 </p>
               </div>
             ) : (
@@ -1311,13 +1313,7 @@ export function Alerts() {
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => {
-                            if (
-                              confirm(`Delete integration "${integ.name}"?`)
-                            ) {
-                              deleteInteg.mutate(integ.id);
-                            }
-                          }}
+                          onClick={() => setDeleteIntegTarget(integ)}
                           className="p-2 text-destructive hover:bg-badge-destructive-bg rounded-sm"
                           title="Delete"
                         >
@@ -1330,6 +1326,31 @@ export function Alerts() {
               </div>
             )}
           </div>
+          {/* Delete Channel Confirmation */}
+          {deleteIntegTarget && (
+            <div className="fixed inset-0 bg-foreground/20 flex items-center justify-center z-50">
+              <div className="bg-card border border-border rounded-sm p-6 max-w-sm w-full mx-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle className="h-5 w-5 text-thinkpad-red" />
+                  <h3 className="font-semibold text-foreground">Remove Channel</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Remove channel <strong className="text-foreground">"{deleteIntegTarget.name}"</strong>?
+                  Alert rules referencing this channel will need to be reconfigured.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setDeleteIntegTarget(null)}
+                    className="px-4 py-2 text-xs rounded-sm border border-input text-foreground hover:bg-surface-hover">Cancel</button>
+                  <button onClick={() => {
+                    deleteInteg.mutate(deleteIntegTarget.id);
+                    setDeleteIntegTarget(null);
+                  }}
+                    className="px-4 py-2 text-xs rounded-sm bg-thinkpad-red text-white hover:bg-thinkpad-red-hover"
+                  >Remove</button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

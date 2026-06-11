@@ -1,18 +1,23 @@
 # ============================================================
-# NetOps - Comprehensive Docker Compose Configuration
+# NetOps — Production Docker Compose
 # ============================================================
 # Services:
-#   - postgres   : PostgreSQL database with persistent volume
-#   - backend    : FastAPI Python application (SNMP, topology, API)
-#   - frontend   : Nginx serving built React SPA + reverse proxy
+#   - postgres   : PostgreSQL 16 (internal network only, persistent volume)
+#   - backend    : FastAPI + Uvicorn (SNMP, topology, API, SSE)
+#   - frontend   : Nginx + React SPA (reverse proxy, SSE passthrough)
 #
-# Features:
-#   - Health checks on all services
-#   - Proper startup ordering (depends_on with condition)
-#   - Persistent volumes for data
-#   - Environment-based configuration
-#   - Development override support
-#   - Network isolation
+# Usage:
+#   Development:  docker compose -f docker-compose.yml -f docker-compose.override.yml up --build
+#   Production:   docker compose -f docker-compose.yml up -d --build
+#
+# Production features:
+#   - PostgreSQL not exposed to host (internal network only)
+#   - Read-only root filesystems on backend + frontend
+#   - Tmpfs for writable runtime dirs
+#   - Restart always on all services
+#   - Health checks with depends_on conditions
+#   - Named volumes for persistent data
+#   - Resource limits commented out (enable as needed)
 # ============================================================
 
 services:
@@ -22,14 +27,15 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: netops-postgres
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-netops}
       POSTGRES_USER: ${POSTGRES_USER:-netops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netops}
       PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # Production: no host port binding — internal network only.
+    # Enable in development via docker-compose.override.yml.
+    ports: []
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -40,7 +46,7 @@ services:
       start_period: 10s
     networks:
       - netops-network
-    # Resource limits (optional, remove if causing issues)
+    # Resource limits (uncomment for production tuning)
     # deploy:
     #   resources:
     #     limits:
@@ -55,7 +61,10 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.backend
     container_name: netops-backend
-    restart: unless-stopped
+    restart: always
+    read_only: true
+    tmpfs:
+      - /tmp
     environment:
       # Database
       POSTGRES_HOST: postgres
@@ -71,8 +80,15 @@ services:
       SNMP_COMMUNITY: ${SNMP_COMMUNITY:-public}
       SNMP_TIMEOUT: ${SNMP_TIMEOUT:-5}
       SNMP_RETRIES: ${SNMP_RETRIES:-3}
-      # Auth
+      # Auth (required — fail-fast on missing)
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      # Encryption at rest for SNMP credentials (optional)
+      NETOPS_ENCRYPTION_KEY: ${NETOPS_ENCRYPTION_KEY:-}
+      # Discovery
+      NETOPS_AUTO_DISCOVER_MODE: ${NETOPS_AUTO_DISCOVER_MODE:-merge}
+      NETOPS_NETWORK_CHECK_INTERVAL: ${NETOPS_NETWORK_CHECK_INTERVAL:-60}
+      # Cookie secure flag (set to 1 for HTTPS frontend)
+      NETOPS_COOKIE_SECURE: ${NETOPS_COOKIE_SECURE:-0}
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Python
@@ -104,7 +120,12 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
     container_name: netops-frontend
-    restart: unless-stopped
+    restart: always
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
     ports:
       - "${FRONTEND_PORT:-80}:80"
     depends_on:

@@ -37,7 +37,7 @@ export function NumberStepper({
   return (
     <div className={`flex items-center ${className}`}>
       {label && (
-        <label className="block text-sm font-medium text-foreground mr-3">
+        <label className="block text-xs font-medium text-foreground mr-3">
           {label}
         </label>
       )}

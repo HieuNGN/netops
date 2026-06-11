@@ -61,6 +61,7 @@ devices_table = Table(
     Column("status", String, default="unknown"),
     Column("sys_descr", Text),
     Column("discovery_method", String, default="manual"),
+    Column("node_type", String, default="device"),
     Column("snmp_version", String, default="2c"),
     Column("snmpv3_username", String),
     Column("snmpv3_auth_protocol", String),
@@ -90,6 +91,9 @@ topology_nodes_table = Table(
     Column("label", String),
     Column("node_type", String, default="device"),
     Column("status", String, default="unknown"),
+    Column("level", Integer, nullable=True),
+    Column("parent_id", String, nullable=True),
+    Column("role", String, nullable=True),
     Column("created", DateTime, server_default=func.now()),
     Column("updated", DateTime, server_default=func.now(), onupdate=func.now()),
     Index("idx_nodes_device_id", "device_id"),
@@ -442,14 +446,15 @@ class AsyncPostgresClient:
         async with self._get_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled, snmpv3_auth_key, snmpv3_priv_key)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, node_type, last_polled, snmpv3_auth_key, snmpv3_priv_key)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (ip_address) DO UPDATE SET
                     name = EXCLUDED.name,
                     community = EXCLUDED.community,
                     status = EXCLUDED.status,
                     sys_descr = EXCLUDED.sys_descr,
                     discovery_method = EXCLUDED.discovery_method,
+                    node_type = EXCLUDED.node_type,
                     last_polled = EXCLUDED.last_polled,
                     snmpv3_auth_key = EXCLUDED.snmpv3_auth_key,
                     snmpv3_priv_key = EXCLUDED.snmpv3_priv_key,
@@ -462,6 +467,7 @@ class AsyncPostgresClient:
                 data.get("status", "unknown"),
                 data.get("sys_descr", ""),
                 data.get("discovery_method", "manual"),
+                data.get("node_type", "device"),
                 data.get("last_polled"),
                 snmpv3_auth_key,
                 snmpv3_priv_key,
@@ -549,6 +555,39 @@ class AsyncPostgresClient:
             links = await conn.fetch("SELECT * FROM topology_links")
             return {"nodes": [dict(n) for n in nodes], "links": [dict(l) for l in links]}
 
+    async def prune_orphan_topology(self) -> int:
+        """Delete topology nodes not backed by a real device, and their links.
+
+        Returns total nodes removed.
+        """
+        if not self._pool:
+            return 0
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute(
+                    """
+                    DELETE FROM topology_nodes
+                    WHERE device_id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM devices d WHERE d.id = topology_nodes.device_id
+                      )
+                    """
+                )
+                removed = int(result.split()[-1]) if result.startswith("DELETE") else 0
+                if removed:
+                    await conn.execute(
+                        """
+                        DELETE FROM topology_links
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.source_id
+                        )
+                        OR NOT EXISTS (
+                            SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.target_id
+                        )
+                        """
+                    )
+                return removed
+
     async def upsert_topology(
         self, nodes: list[dict[str, Any]], links: list[dict[str, Any]]
     ) -> dict[str, int]:
@@ -574,18 +613,22 @@ class AsyncPostgresClient:
             if nodes:
                 node_values = [
                     (n["id"], n.get("device_id"), n.get("label", ""),
-                     n.get("node_type", "device"), n.get("status", "unknown"))
+                     n.get("node_type", "device"), n.get("status", "unknown"),
+                     n.get("level"), n.get("parent_id"), n.get("role"))
                     for n in nodes
                 ]
                 await conn.executemany(
                     """
-                    INSERT INTO topology_nodes (id, device_id, label, node_type, status)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO topology_nodes (id, device_id, label, node_type, status, level, parent_id, role)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (id) DO UPDATE SET
                         device_id = EXCLUDED.device_id,
                         label = EXCLUDED.label,
                         node_type = EXCLUDED.node_type,
                         status = EXCLUDED.status,
+                        level = EXCLUDED.level,
+                        parent_id = EXCLUDED.parent_id,
+                        role = EXCLUDED.role,
                         updated = NOW()
                     """,
                     node_values,

@@ -101,3 +101,5 @@ opencode.jsonc
 .mypy_cache/
 .ruff_cache/
 .tox/
+.opencode/plans/final upgrade plan/
+netops-report/

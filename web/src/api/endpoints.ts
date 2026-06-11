@@ -9,6 +9,7 @@ export interface Device {
   status: 'online' | 'offline' | 'unknown' | 'discovered';
   sys_descr: string;
   discovery_method: string;
+  node_type: string;
   last_polled: string;
   created: string;
   updated: string;
@@ -68,6 +69,8 @@ export interface TopologyNode {
   created: string;
   updated: string;
   level?: number;
+  parent_id?: string;
+  role?: string;
 }
 
 export interface TopologyLink {

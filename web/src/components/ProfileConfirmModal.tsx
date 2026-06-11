@@ -70,7 +70,7 @@ export function ProfileConfirmModal({
         <div className="px-5 py-3 border-b border-border bg-surface-subtle flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Server className="h-4 w-4 text-muted-foreground" />
-            <h2 id="profile-confirm-title" className="text-sm font-semibold text-foreground">
+            <h2 id="profile-confirm-title" className="text-xs font-semibold text-foreground">
               Detected new network
             </h2>
           </div>
@@ -98,7 +98,7 @@ export function ProfileConfirmModal({
                 key={p}
                 onClick={() => setPending(p)}
                 disabled={busy}
-                className={`text-left p-3 rounded-sm border text-sm transition-all disabled:opacity-50 ${
+                className={`text-left p-3 rounded-sm border text-xs transition-all disabled:opacity-50 ${
                   pending === p
                     ? 'border-ibm-blue bg-ibm-blue/5 ring-1 ring-ibm-blue/30'
                     : p === detectedProfile

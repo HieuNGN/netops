@@ -1,34 +1,39 @@
 # ============================================================
-# NetOps - Development Docker Compose Override
+# NetOps — Development Docker Compose Override
 # ============================================================
-# Usage: automatically picked up by docker compose up
-#   (place this file next to docker-compose.yml in docker/)
+# Docker Compose auto-picks this up when running from docker/.
 #
-# Changes from base:
-#   - Mounts local source code for iterative development
+# Changes from docker-compose.yml (production):
+#   - Postgres port exposed to host for local DB tools
+#   - Source code mounted as read-only for hot-reload
 #   - Debug logging
-#   - Exposes postgres port for local tooling access
+#   - Nginx config mounted for quick edits
+#   - Read-only rootfs disabled (rw for dev tooling)
 # ============================================================
 
 services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
   backend:
+    read_only: false
+    tmpfs: []
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      # Mount source for iterative backend changes without rebuild
       - ../src:/app/src:ro
       - ../scripts:/app/scripts:ro
     environment:
       LOG_LEVEL: DEBUG
-    # Optional: enable auto-reload if watchfiles is installed
+      NETOPS_COOKIE_SECURE: "0"
+    # Enable auto-reload (requires watchfiles: pip install watchfiles)
     # command: ["python", "-m", "uvicorn", "src.collector.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "src"]
 
   frontend:
+    read_only: false
+    tmpfs: []
     volumes:
-      # Mount nginx config for quick tweaks
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     environment:
       - NGINX_ENTRYPOINT_QUIET_LOGS=1
-
-  postgres:
-    # In dev, keep port exposed for local DB tools
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"

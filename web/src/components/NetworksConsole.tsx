@@ -84,7 +84,7 @@ export function NetworksConsole({ open, onClose }: Props) {
       <div className="fixed top-0 right-0 h-full w-[400px] bg-card border-l border-border z-50 flex flex-col shadow-2xl">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div>
-            <h2 className="text-base font-semibold text-foreground">Networks</h2>
+            <h2 className="text-xs font-semibold text-foreground">Networks</h2>
             <p className="text-xs text-muted-foreground">{networks.length} networks &middot; {totalDevices} devices</p>
           </div>
           <div className="flex items-center gap-2">
@@ -99,8 +99,8 @@ export function NetworksConsole({ open, onClose }: Props) {
 
         {showCreate && (
           <form onSubmit={handleCreate} className="px-4 py-3 border-b border-border bg-background space-y-2">
-            <input type="text" placeholder="Network name" value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input dark:border-input bg-card text-foreground rounded-sm" required />
-            <input type="text" placeholder="CIDR (optional)" value={newCidr} onChange={(e) => setNewCidr(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-input dark:border-input bg-card text-foreground rounded-sm" />
+            <input type="text" placeholder="Network name" value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full px-2 py-1.5 text-xs border border-input dark:border-input bg-card text-foreground rounded-sm" required />
+            <input type="text" placeholder="CIDR (optional)" value={newCidr} onChange={(e) => setNewCidr(e.target.value)} className="w-full px-2 py-1.5 text-xs border border-input dark:border-input bg-card text-foreground rounded-sm" />
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => { setShowCreate(false); setNewName(''); setNewCidr(''); }} className="text-xs px-2 py-1 text-muted-foreground">Cancel</button>
               <button type="submit" className="text-xs px-3 py-1 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover">Create</button>
@@ -109,12 +109,12 @@ export function NetworksConsole({ open, onClose }: Props) {
         )}
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-          {isLoading && <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>}
+          {isLoading && <p className="text-xs text-muted-foreground py-4 text-center">Loading...</p>}
           {!isLoading && networks.length === 0 && (
             <div className="text-center py-12">
               <Globe className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">No networks yet</p>
-              <button onClick={() => setShowCreate(true)} className="mt-2 text-sm text-destructive hover:underline">Create your first network</button>
+              <p className="text-xs text-muted-foreground">No networks yet</p>
+              <button onClick={() => setShowCreate(true)} className="mt-2 text-xs text-destructive hover:underline">Create your first network</button>
             </div>
           )}
           {networks.map((n) => (
@@ -128,7 +128,7 @@ export function NetworksConsole({ open, onClose }: Props) {
                   <InlineEditableField
                     value={n.name}
                     onSave={(v) => handleRename(n.id, v)}
-                    className="text-sm font-medium text-foreground"
+                    className="text-xs font-medium text-foreground"
                   />
                   {n.is_default && (
                     <span className="text-xs px-1.5 py-0.5 bg-ibm-blue text-white dark:bg-ibm-blue dark:text-white rounded-sm font-medium">default</span>
@@ -173,7 +173,7 @@ export function NetworksConsole({ open, onClose }: Props) {
         <div className="fixed inset-0 bg-foreground/20 flex items-center justify-center z-50">
           <div className="bg-card border border-border rounded-sm p-6 max-w-sm w-full mx-4">
             <h3 className="font-semibold mb-2">Confirm Delete</h3>
-            <p className="text-sm text-muted-foreground mb-4">
+            <p className="text-xs text-muted-foreground mb-4">
               Delete <strong>"{deleteTarget.name}"</strong>? This will unassign all associated devices.
             </p>
             <div className="flex justify-end gap-2">

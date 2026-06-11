@@ -146,7 +146,7 @@ export function LoginPage() {
             <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
               netops / v1
             </div>
-            <div className="text-sm font-bold uppercase">Operator Console</div>
+            <div className="text-xs font-bold uppercase">Operator Console</div>
           </div>
         </div>
 
@@ -154,14 +154,14 @@ export function LoginPage() {
           <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-3">
             // session {new Date().toISOString().slice(0, 10)} · node.alpha
           </div>
-          <h2 className="text-3xl xl:text-4xl font-bold uppercase leading-[1.05] tracking-tight">
+          <h2 className="text-2xl xl:text-4xl font-bold uppercase leading-[1.05] tracking-tight">
             Topology.
             <br />
             Devices.
             <br />
             <span className="text-destructive">Alarms.</span>
           </h2>
-          <p className="mt-5 text-sm text-muted-foreground leading-relaxed">
+          <p className="mt-5 text-xs text-muted-foreground leading-relaxed">
             Discover, poll, and audit your routed network. SNMPv2c / v3, LLDP,
             service checks, and alert routing — one operator pane.
           </p>
@@ -176,7 +176,7 @@ export function LoginPage() {
                 <div className="text-[9px] uppercase tracking-[0.25em] text-muted-foreground">
                   {m.k}
                 </div>
-                <div className="text-sm font-bold mt-1">{m.v}</div>
+                <div className="text-xs font-bold mt-1">{m.v}</div>
               </div>
             ))}
           </div>
@@ -222,7 +222,7 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="flex items-start gap-2 p-3 bg-destructive/10 border-l-2 border-ring text-sm">
+              <div className="flex items-start gap-2 p-3 bg-destructive/10 border-l-2 border-ring text-xs">
                 <AlertTriangle className="h-4 w-4 mt-0.5 text-destructive shrink-0" />
                 <span className="text-destructive">{error}</span>
               </div>
@@ -384,7 +384,7 @@ export function LoginPage() {
               <Server className="h-5 w-5 text-ibm-blue" />
               <h3 className="font-semibold text-foreground">Select Environment</h3>
             </div>
-            <p className="text-sm text-muted-foreground mb-4">
+            <p className="text-xs text-muted-foreground mb-4">
               Choose your deployment profile to optimize monitoring defaults.
             </p>
             <div className="space-y-2 mb-4">

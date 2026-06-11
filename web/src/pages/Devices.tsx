@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Trash2, ScanLine, X, Upload, RefreshCcw, AlertTriangle, Server, Filter, Pencil, Check, Download } from 'lucide-react';
+import { Plus, Search, Trash2, ScanLine, X, Upload, AlertTriangle, Server, Filter, Pencil, Check, Download } from 'lucide-react';
 import { useDevices, useDeviceEvents, useNetworks, useStaleAction } from '../hooks';
 import { useToast } from '../components/ui';
 import { FilterSelect } from '../components/ui/FilterSelect';
@@ -47,9 +47,9 @@ export function Devices() {
   const [networkFilter, setNetworkFilter] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState<string>('all');
   const [staleModalDevice, setStaleModalDevice] = useState<any | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const { networks } = useNetworks();
   const staleActionMutation = useStaleAction();
@@ -105,7 +105,7 @@ export function Devices() {
     try {
       await updateDevice({ id, data: { name: editName.trim() } });
       toast.success('Device name updated');
-    } catch { toast.error('Failed to update name'); }
+    } catch (e: any) { toast.error('Failed to update name', e?.response?.data?.detail || e?.message); }
     setEditingDeviceId(null);
     setEditName('');
   };
@@ -117,35 +117,22 @@ export function Devices() {
 
   const handleDiscover = async (e: React.FormEvent) => {
     e.preventDefault();
+    const wipe = (e.currentTarget.querySelector('#scan-wipe') as HTMLInputElement)?.checked ?? false;
     clearScanLog();
     setBusy(true);
     try {
-      // Default = merge (non-destructive). Replace path is only for the
-      // explicit "Reset & Rescan" button.
-
-      const r = await rescanNetwork({ ...scanConfig, mode: 'merge' });
+      const mode = wipe ? 'replace' : 'merge';
+      const r = await rescanNetwork({ ...scanConfig, mode });
       toast.success(
-        'Rescan complete',
-        `Found ${r.data.found}, added ${r.data.added}, updated ${r.data.updated ?? 0}`,
+        wipe ? 'Reset & rescan complete' : 'Rescan complete',
+        wipe
+          ? `Cleared ${r.data.cleared ?? 0}, found ${r.data.found}, added ${r.data.added}`
+          : `Found ${r.data.found}, added ${r.data.added}, updated ${r.data.updated ?? 0}`,
       );
       setShowScanModal(false);
     } catch (e: any) {
       toast.error('Scan failed', e?.response?.data?.detail || e?.message);
     } finally { setBusy(false); }
-  };
-
-  const confirmResetRescan = async () => {
-    setShowResetConfirm(false);
-    clearScanLog();
-    setBusy(true);
-    try {
-      const r = await rescanNetwork({ ...scanConfig, mode: 'replace' });
-      toast.success(
-        'Reset & rescan complete',
-        `Cleared ${r.data.cleared ?? 0}, found ${r.data.found}, added ${r.data.added}`,
-      );
-    } catch (e: any) { toast.error('Failed', e?.response?.data?.detail || e?.message); }
-    finally { setBusy(false); }
   };
 
   const handleImport = async () => {
@@ -237,7 +224,7 @@ export function Devices() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Devices</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             {devices.length} total
             {hasFilters && (
               <>
@@ -249,16 +236,8 @@ export function Devices() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => setShowResetConfirm(true)}
-            disabled={busy || isRescanning}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-thinkpad-red text-white rounded-sm hover:bg-thinkpad-red-hover disabled:opacity-50"
-          >
-            <RefreshCcw className="h-3.5 w-3.5" />
-            <span>{busy || isRescanning ? 'Rescanning...' : 'Reset & Rescan'}</span>
-          </button>
-          <button
             onClick={() => setShowImport(true)}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-ibm-green text-white rounded-sm hover:bg-ibm-green-hover"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-ibm-green text-white rounded-sm hover:bg-ibm-green-hover"
           >
             <Upload className="h-3.5 w-3.5" />
             <span>Import</span>
@@ -266,21 +245,21 @@ export function Devices() {
           <button
             onClick={exportCSV}
             disabled={filteredDevices.length === 0}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-ibm-cyan text-white rounded-sm hover:bg-ibm-cyan-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-ibm-cyan text-white rounded-sm hover:bg-ibm-cyan-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download className="h-3.5 w-3.5" />
             <span>Export CSV</span>
           </button>
           <button
             onClick={() => setShowScanModal(true)}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover"
           >
             <ScanLine className="h-3.5 w-3.5" />
             <span>Scan</span>
           </button>
           <button
             onClick={() => setShowAddForm(true)}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-ibm-purple text-white rounded-sm hover:bg-ibm-purple-hover"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-ibm-purple text-white rounded-sm hover:bg-ibm-purple-hover"
           >
             <Plus className="h-3.5 w-3.5" />
             <span>Add Device</span>
@@ -296,7 +275,7 @@ export function Devices() {
             placeholder="Search by name or IP…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-sm border border-input bg-card text-foreground rounded-sm focus:outline-none focus:ring-1 focus:ring-ibm-blue focus:border-ibm-blue"
+            className="w-full pl-9 pr-3 py-1.5 text-xs border border-input bg-card text-foreground rounded-sm focus:outline-none focus:ring-1 focus:ring-ibm-blue focus:border-ibm-blue"
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -340,43 +319,43 @@ export function Devices() {
 
       {showAddForm && (
         <div className="mb-6 bg-card rounded-sm shadow-sm border border-border p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Add Device</h2>
+          <h2 className="text-xs font-semibold text-foreground mb-4">Add Device</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div><label className="block text-sm font-medium text-foreground mb-1">Name</label>
+              <div><label className="block text-xs font-medium text-foreground mb-1">Name</label>
                 <input type="text" value={newDevice.name} onChange={e => setNewDevice({...newDevice, name: e.target.value})}
                   className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm" placeholder="Router-1" /></div>
-              <div><label className="block text-sm font-medium text-foreground mb-1">IP Address *</label>
+              <div><label className="block text-xs font-medium text-foreground mb-1">IP Address *</label>
                 <input type="text" value={newDevice.ip_address} onChange={e => setNewDevice({...newDevice, ip_address: e.target.value})} required
                   className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm" placeholder="192.168.1.1" /></div>
-              <div><label className="block text-sm font-medium text-foreground mb-1">SNMP Version</label>
+              <div><label className="block text-xs font-medium text-foreground mb-1">SNMP Version</label>
                 <select value={newDevice.snmp_version} onChange={e => setNewDevice({...newDevice, snmp_version: e.target.value})}
                   className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm">
                   <option value="2c">v2c</option><option value="3">v3</option></select></div>
             </div>
             {newDevice.snmp_version === '2c' && (
-              <div><label className="block text-sm font-medium text-foreground mb-1">Community</label>
+              <div><label className="block text-xs font-medium text-foreground mb-1">Community</label>
                 <select value={newDevice.community} onChange={e => setNewDevice({...newDevice, community: e.target.value})}
                   className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm">
                   <option value="public">public</option><option value="private">private</option></select></div>
             )}
             {newDevice.snmp_version === '3' && (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div><label className="block text-sm font-medium text-foreground mb-1">Username</label>
+                <div><label className="block text-xs font-medium text-foreground mb-1">Username</label>
                   <input type="text" value={newDevice.snmpv3_username} onChange={e => setNewDevice({...newDevice, snmpv3_username: e.target.value})}
                     className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm" /></div>
-                <div><label className="block text-sm font-medium text-foreground mb-1">Auth Protocol</label>
+                <div><label className="block text-xs font-medium text-foreground mb-1">Auth Protocol</label>
                   <select value={newDevice.snmpv3_auth_protocol} onChange={e => setNewDevice({...newDevice, snmpv3_auth_protocol: e.target.value})}
                     className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm">
                     <option value="">none</option><option value="MD5">MD5</option><option value="SHA">SHA</option><option value="SHA256">SHA-256</option></select></div>
-                <div><label className="block text-sm font-medium text-foreground mb-1">Auth Key</label>
+                <div><label className="block text-xs font-medium text-foreground mb-1">Auth Key</label>
                   <input type="password" value={newDevice.snmpv3_auth_key} onChange={e => setNewDevice({...newDevice, snmpv3_auth_key: e.target.value})}
                     className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm" /></div>
-                <div><label className="block text-sm font-medium text-foreground mb-1">Priv Protocol</label>
+                <div><label className="block text-xs font-medium text-foreground mb-1">Priv Protocol</label>
                   <select value={newDevice.snmpv3_priv_protocol} onChange={e => setNewDevice({...newDevice, snmpv3_priv_protocol: e.target.value})}
                     className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm">
                     <option value="">none</option><option value="DES">DES</option><option value="AES">AES</option></select></div>
-                <div><label className="block text-sm font-medium text-foreground mb-1">Priv Key</label>
+                <div><label className="block text-xs font-medium text-foreground mb-1">Priv Key</label>
                   <input type="password" value={newDevice.snmpv3_priv_key} onChange={e => setNewDevice({...newDevice, snmpv3_priv_key: e.target.value})}
                     className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm" /></div>
               </div>
@@ -393,14 +372,14 @@ export function Devices() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20">
           <div className="bg-card rounded-sm shadow-lg border border-border p-6 w-full max-w-lg mx-4">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-foreground">Bulk Import Devices</h2>
+              <h2 className="text-xs font-semibold text-foreground">Bulk Import Devices</h2>
               <button onClick={() => { setShowImport(false); setImportData(''); }} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
             </div>
             <div className="space-y-4">
               <div className="flex space-x-2">
-                <button onClick={() => setImportType('json')} className={`px-3 py-1.5 text-sm rounded-sm ${importType === 'json' ? 'bg-ibm-blue text-white' : 'bg-secondary text-secondary-foreground'}`}>JSON</button>
-                <button onClick={() => setImportType('csv')} className={`px-3 py-1.5 text-sm rounded-sm ${importType === 'csv' ? 'bg-ibm-blue text-white' : 'bg-secondary text-secondary-foreground'}`}>CSV</button>
-                <button onClick={() => fileRef.current?.click()} className="px-3 py-1.5 text-sm rounded-sm bg-ibm-cyan text-white hover:bg-ibm-cyan-hover">Upload File</button>
+                <button onClick={() => setImportType('json')} className={`px-3 py-1.5 text-xs rounded-sm ${importType === 'json' ? 'bg-ibm-blue text-white' : 'bg-secondary text-secondary-foreground'}`}>JSON</button>
+                <button onClick={() => setImportType('csv')} className={`px-3 py-1.5 text-xs rounded-sm ${importType === 'csv' ? 'bg-ibm-blue text-white' : 'bg-secondary text-secondary-foreground'}`}>CSV</button>
+                <button onClick={() => fileRef.current?.click()} className="px-3 py-1.5 text-xs rounded-sm bg-ibm-cyan text-white hover:bg-ibm-cyan-hover">Upload File</button>
                 <input ref={fileRef} type="file" accept=".json,.csv" onChange={handleFileUpload} className="hidden" />
               </div>
               <textarea value={importData} onChange={e => setImportData(e.target.value)}
@@ -418,15 +397,15 @@ export function Devices() {
       {showScanModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20">
           <div className="bg-card rounded-sm shadow-lg border border-border p-6 w-full max-w-lg mx-4 flex flex-col max-h-[80vh]">
-            <div className="flex justify-between items-center mb-4"><h2 className="text-lg font-semibold text-foreground">Scan Network</h2><button onClick={() => { setShowScanModal(false); clearScanLog(); }} className="text-muted-foreground"><X className="h-5 w-5" /></button></div>
+            <div className="flex justify-between items-center mb-4"><h2 className="text-xs font-semibold text-foreground">Scan Network</h2><button onClick={() => { setShowScanModal(false); clearScanLog(); }} className="text-muted-foreground"><X className="h-5 w-5" /></button></div>
             <form onSubmit={handleDiscover} className="space-y-4 shrink-0">
-              <div><label className="block text-sm font-medium text-foreground mb-1">Network Range</label>
+              <div><label className="block text-xs font-medium text-foreground mb-1">Network Range</label>
                 <input type="text" value={scanConfig.network_range} onChange={e => setScanConfig({...scanConfig, network_range: e.target.value})} required
                   className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm" placeholder="192.168.1.0/24" /></div>
-              <div><label className="block text-sm font-medium text-foreground mb-1">SNMP Community</label>
+              <div><label className="block text-xs font-medium text-foreground mb-1">SNMP Community</label>
                 <select value={scanConfig.community} onChange={e => setScanConfig({...scanConfig, community: e.target.value})}
                   className="w-full px-3 py-2 border border-input dark:border-input bg-card text-foreground rounded-sm"><option value="public">public</option><option value="private">private</option></select></div>
-              <label className="flex items-center space-x-2 text-sm text-foreground">
+              <label className="flex items-center space-x-2 text-xs text-foreground">
                 <input
                   type="checkbox"
                   id="scan-merge"
@@ -435,23 +414,33 @@ export function Devices() {
                 />
                 <span>Preserve manual devices (merge mode)</span>
               </label>
-              <div className="flex justify-end space-x-2">
-                <button type="button" onClick={() => { setShowScanModal(false); clearScanLog(); }} className="px-4 py-2 text-foreground bg-secondary hover:bg-surface-hover rounded-sm">Cancel</button>
-                <button type="submit" disabled={busy || isRescanning} className="px-4 py-2 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover disabled:opacity-50">
-                  {busy || isRescanning ? (
-                    <span className="inline-flex items-center gap-2">
-                      <span className="inline-block h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Scanning…
-                    </span>
-                  ) : 'Start Scan'}
-                </button>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center space-x-2 text-xs text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    id="scan-wipe"
+                    className="h-4 w-4 rounded border-input text-destructive focus:ring-ring"
+                  />
+                  <span className="text-thinkpad-red font-medium">Erase existing devices</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => { setShowScanModal(false); clearScanLog(); }} className="px-4 py-2 text-foreground bg-secondary hover:bg-surface-hover rounded-sm">Cancel</button>
+                  <button type="submit" disabled={busy || isRescanning} className="px-4 py-2 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover disabled:opacity-50">
+                    {busy || isRescanning ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-block h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Scanning…
+                      </span>
+                    ) : 'Start Scan'}
+                  </button>
+                </div>
               </div>
             </form>
 
             {/* Scan progress + log */}
             {isRescanning && (
               <div className="mt-4 border-t border-border pt-4 shrink-0">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
                   <span className="inline-block h-4 w-4 border-2 border-foreground/30 border-t-foreground rounded-full animate-spin" />
                   <span>Scanning {scanConfig.network_range}…</span>
                   <span className="ml-auto tabular-nums">{scanProgress.found} found</span>
@@ -485,25 +474,25 @@ export function Devices() {
 
       <div className="bg-card border border-border rounded-sm overflow-hidden">
         {isLoading ? (
-          <div className="px-6 py-12 text-center text-sm text-muted-foreground">Loading devices…</div>
+          <div className="px-6 py-12 text-center text-xs text-muted-foreground">Loading devices…</div>
         ) : devices.length === 0 ? (
           <div className="px-6 py-16 text-center">
             <Server className="h-8 w-8 text-muted-foreground mx-auto mb-3 opacity-50" />
-            <h3 className="text-sm font-semibold text-foreground">No devices yet</h3>
+            <h3 className="text-xs font-semibold text-foreground">No devices yet</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
               Scan a network range to discover devices automatically, or add one manually.
             </p>
             <div className="flex justify-center gap-2 mt-4">
               <button
                 onClick={() => setShowScanModal(true)}
-                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover"
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover"
               >
                 <ScanLine className="h-3.5 w-3.5" />
                 Scan network
               </button>
               <button
                 onClick={() => setShowAddForm(true)}
-                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 bg-ibm-purple text-white rounded-sm hover:bg-ibm-purple-hover"
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-ibm-purple text-white rounded-sm hover:bg-ibm-purple-hover"
               >
                 <Plus className="h-3.5 w-3.5" />
                 Add manually
@@ -517,6 +506,7 @@ export function Devices() {
                 <tr>
                   <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Device</th>
                   <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">IP</th>
+                  <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Type</th>
                   <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Status</th>
                   <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden md:table-cell">Method</th>
                   <th scope="col" className="px-4 py-2.5 text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Last polled</th>
@@ -526,7 +516,7 @@ export function Devices() {
               <tbody className="divide-y divide-border">
                 {filteredDevices.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-sm text-muted-foreground">
+                    <td colSpan={7} className="px-6 py-12 text-center text-xs text-muted-foreground">
                       <Filter className="h-6 w-6 mx-auto mb-2 opacity-50" />
                       No devices match the current filters
                     </td>
@@ -548,7 +538,7 @@ export function Devices() {
                                   if (e.key === 'Escape') cancelEditName();
                                 }}
                                 autoFocus
-                                className="flex-1 min-w-0 px-2 py-1 text-sm border border-ibm-blue bg-card text-foreground rounded-sm focus:outline-none focus:ring-1 focus:ring-ibm-blue"
+                                className="flex-1 min-w-0 px-2 py-1 text-xs border border-ibm-blue bg-card text-foreground rounded-sm focus:outline-none focus:ring-1 focus:ring-ibm-blue"
                               />
                               <button
                                 type="button"
@@ -570,7 +560,7 @@ export function Devices() {
                           ) : (
                             <Link
                               to={`/devices/${device.id}`}
-                              className="text-sm font-medium text-foreground truncate max-w-xs hover:text-ibm-blue"
+                              className="text-xs font-medium text-foreground truncate max-w-xs hover:text-ibm-blue"
                               title="View device details"
                             >
                               {device.name || <span className="text-muted-foreground italic">unnamed</span>}
@@ -584,6 +574,44 @@ export function Devices() {
                         </td>
                         <td className="px-4 py-2.5 font-mono text-xs text-foreground whitespace-nowrap">
                           {device.ip_address}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          {editingTypeId === device.id ? (
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={device.node_type || 'device'}
+                                onChange={(e) => {
+                                  const nt = e.target.value;
+                                  updateDevice({ id: device.id, data: { node_type: nt } });
+                                  setEditingTypeId(null);
+                                }}
+                                autoFocus
+                                className="px-2 py-1 text-xs border border-ibm-blue bg-card text-foreground rounded-sm focus:outline-none focus:ring-1 focus:ring-ibm-blue"
+                              >
+                                <option value="router">router</option>
+                                <option value="switch">switch</option>
+                                <option value="firewall">firewall</option>
+                                <option value="access_point">access point</option>
+                                <option value="server">server</option>
+                                <option value="host">host</option>
+                                <option value="end_device">end device</option>
+                              </select>
+                              <button
+                                onClick={() => setEditingTypeId(null)}
+                                className="text-thinkpad-red hover:text-thinkpad-red-hover p-1 rounded-sm"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setEditingTypeId(device.id)}
+                              className="text-xs text-foreground hover:text-ibm-blue capitalize"
+                              title="Click to change type"
+                            >
+                              {device.node_type || 'device'}
+                            </button>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap">
                           <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded-sm font-medium ${statusBadge(device.status)}`}>
@@ -642,7 +670,7 @@ export function Devices() {
               <AlertTriangle className="h-5 w-5 text-amber-500" />
               <h3 className="font-semibold">Stale device</h3>
             </div>
-            <p className="text-sm text-muted-foreground mb-4">
+            <p className="text-xs text-muted-foreground mb-4">
               <span className="font-mono">{staleModalDevice.name || staleModalDevice.ip_address}</span>
               {" "}has been offline for &gt;72h. Mark for removal or keep?
             </p>
@@ -684,39 +712,20 @@ export function Devices() {
               <AlertTriangle className="h-5 w-5 text-thinkpad-red" />
               <h3 className="font-semibold text-foreground">Delete Device</h3>
             </div>
-            <p className="text-sm text-muted-foreground mb-4">
+            <p className="text-xs text-muted-foreground mb-4">
               Are you sure you want to delete this device? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteTargetId(null)}
-                className="px-4 py-2 text-sm rounded-sm border border-input text-foreground hover:bg-surface-hover">Cancel</button>
+                className="px-4 py-2 text-xs rounded-sm border border-input text-foreground hover:bg-surface-hover">Cancel</button>
               <button onClick={confirmDelete}
-                className="px-4 py-2 text-sm rounded-sm bg-thinkpad-red text-white hover:bg-thinkpad-red-hover">Delete</button>
+                className="px-4 py-2 text-xs rounded-sm bg-thinkpad-red text-white hover:bg-thinkpad-red-hover">Delete</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Reset & Rescan confirmation modal */}
-      {showResetConfirm && (
-        <div className="fixed inset-0 bg-foreground/20 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-sm p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="h-5 w-5 text-thinkpad-red" />
-              <h3 className="font-semibold text-foreground">Reset & Rescan</h3>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              This will <strong className="text-thinkpad-red">wipe ALL devices and topology</strong>, then scan the current network range. This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowResetConfirm(false)}
-                className="px-4 py-2 text-sm rounded-sm border border-input text-foreground hover:bg-surface-hover">Cancel</button>
-              <button onClick={confirmResetRescan}
-                className="px-4 py-2 text-sm rounded-sm bg-thinkpad-red text-white hover:bg-thinkpad-red-hover">Reset & Rescan</button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }

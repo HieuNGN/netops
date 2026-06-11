@@ -7,7 +7,7 @@ export function AnomalyBadge({ anomaly }: { anomaly: Anomaly }) {
   return (
     <div className="inline-flex items-center gap-2 px-3 py-2 rounded-sm bg-ibm-yellow/10 border border-ibm-yellow/30">
       <AlertTriangle className="h-4 w-4 text-ibm-yellow" />
-      <div className="text-sm">
+      <div className="text-xs">
         <span className="font-medium text-foreground">
           {isSpike ? '↑' : '↓'} {anomaly.magnitude}% {anomaly.direction}
         </span>
@@ -28,7 +28,7 @@ export function AnomalyCount({ count }: { count: number }) {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 rounded-sm bg-ibm-yellow/10 border border-ibm-yellow/30">
       <AlertTriangle className="h-4 w-4 text-ibm-yellow" />
-      <span className="text-sm font-medium text-foreground">
+      <span className="text-xs font-medium text-foreground">
         {count} anomal{count === 1 ? 'y' : 'ies'} detected
       </span>
     </div>

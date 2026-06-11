@@ -66,8 +66,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           >
             <div className="flex-shrink-0">{icons[toast.type]}</div>
             <div className="flex-1 min-w-0">
-              {toast.title && <p className="font-semibold text-sm mb-0.5">{toast.title}</p>}
-              <p className="text-sm">{toast.message}</p>
+              {toast.title && <p className="font-semibold text-xs mb-0.5">{toast.title}</p>}
+              <p className="text-xs">{toast.message}</p>
             </div>
             <button
               onClick={() => dismiss(toast.id)}

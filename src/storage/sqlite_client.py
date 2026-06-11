@@ -333,12 +333,13 @@ class AsyncSQLiteClient:
         
         await self._db.execute(
             """
-            INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, last_polled, snmpv3_auth_key, snmpv3_priv_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO devices (id, name, ip_address, community, status, sys_descr, discovery_method, node_type, last_polled, snmpv3_auth_key, snmpv3_priv_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (device_id, data.get("name", ""), data["ip_address"],
              community, data.get("status", "unknown"),
              data.get("sys_descr", ""), data.get("discovery_method", "manual"),
+             data.get("node_type", "device"),
              data.get("last_polled"), snmpv3_auth_key, snmpv3_priv_key)
         )
         await self._db.commit()
@@ -521,6 +522,34 @@ class AsyncSQLiteClient:
         links = [dict(row) for row in await cursor.fetchall()]
         return {"nodes": nodes, "links": links}
 
+    async def prune_orphan_topology(self) -> int:
+        """Delete topology nodes not backed by a real device, and their links."""
+        async with self._lock:
+            cursor = await self._db.execute(
+                """
+                DELETE FROM topology_nodes
+                WHERE device_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM devices d WHERE d.id = topology_nodes.device_id
+                  )
+                """
+            )
+            removed = cursor.rowcount
+            if removed:
+                await self._db.execute(
+                    """
+                    DELETE FROM topology_links
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.source_id
+                    )
+                    OR NOT EXISTS (
+                        SELECT 1 FROM topology_nodes n WHERE n.id = topology_links.target_id
+                    )
+                    """
+                )
+            await self._db.commit()
+            return removed
+
     async def upsert_topology(
         self, nodes: list[dict[str, Any]], links: list[dict[str, Any]]
     ) -> dict[str, int]:
@@ -544,18 +573,22 @@ class AsyncSQLiteClient:
             if nodes:
                 node_values = [
                     (n["id"], n.get("device_id"), n.get("label", ""),
-                     n.get("node_type", "device"), n.get("status", "unknown"))
+                     n.get("node_type", "device"), n.get("status", "unknown"),
+                     n.get("level"), n.get("parent_id"), n.get("role"))
                     for n in nodes
                 ]
                 await self._db.executemany(
                     """
-                    INSERT INTO topology_nodes (id, device_id, label, node_type, status)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO topology_nodes (id, device_id, label, node_type, status, level, parent_id, role)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (id) DO UPDATE SET
                         device_id = excluded.device_id,
                         label = excluded.label,
                         node_type = excluded.node_type,
                         status = excluded.status,
+                        level = excluded.level,
+                        parent_id = excluded.parent_id,
+                        role = excluded.role,
                         updated = datetime('now')
                     """,
                     node_values,

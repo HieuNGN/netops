@@ -111,11 +111,11 @@ export function ServiceChecks() {
 
       {showAddForm && (
         <div className="mb-6 bg-card rounded-sm shadow-sm border border-border p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Add New Service Check</h2>
+          <h2 className="text-xs font-semibold text-foreground mb-4">Add New Service Check</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Name *</label>
+                <label className="block text-xs font-medium text-foreground mb-1">Name *</label>
                 <input
                   type="text"
                   value={newCheck.name}
@@ -126,7 +126,7 @@ export function ServiceChecks() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Check Type *</label>
+                <label className="block text-xs font-medium text-foreground mb-1">Check Type *</label>
                 <select
                   value={newCheck.check_type}
                   onChange={(e) => {
@@ -147,7 +147,7 @@ export function ServiceChecks() {
                 </select>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-foreground mb-1">Target *</label>
+                <label className="block text-xs font-medium text-foreground mb-1">Target *</label>
                 <input
                   type="text"
                   value={newCheck.target}
@@ -168,7 +168,7 @@ export function ServiceChecks() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-xs font-medium text-foreground mb-1">
                   Interval (seconds)
                 </label>
                 <input
@@ -182,7 +182,7 @@ export function ServiceChecks() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
+                <label className="block text-xs font-medium text-foreground mb-1">
                   Timeout (seconds)
                 </label>
                 <input
@@ -219,7 +219,7 @@ export function ServiceChecks() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-card rounded-sm shadow-sm border border-border overflow-hidden">
           <div className="px-6 py-4 border-b border-border">
-            <h2 className="text-lg font-semibold text-foreground">Configured Checks</h2>
+            <h2 className="text-xs font-semibold text-foreground">Configured Checks</h2>
           </div>
           <div className="divide-y divide-border">
             {isLoading ? (
@@ -250,7 +250,7 @@ export function ServiceChecks() {
                 </span>
               )}
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1 font-mono">{check.target}</p>
+                      <p className="text-xs text-muted-foreground mt-1 font-mono">{check.target}</p>
                       <p className="text-xs text-muted-foreground mt-1">
                         Every {check.interval_seconds}s • Timeout: {check.timeout_seconds}s
                       </p>
@@ -286,15 +286,15 @@ export function ServiceChecks() {
 
         <div className="bg-card rounded-sm shadow-sm border border-border overflow-hidden">
           <div className="px-6 py-4 border-b border-border">
-            <h2 className="text-lg font-semibold text-foreground">Check Results</h2>
+            <h2 className="text-xs font-semibold text-foreground">Check Results</h2>
           </div>
           <div className="p-6">
             {!selectedCheckId ? (
-              <p className="text-muted-foreground text-sm">Select a check to view results</p>
+              <p className="text-muted-foreground text-xs">Select a check to view results</p>
             ) : resultsLoading ? (
-              <p className="text-muted-foreground text-sm">Loading results...</p>
+              <p className="text-muted-foreground text-xs">Loading results...</p>
             ) : checkResults.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No results yet for this check</p>
+              <p className="text-muted-foreground text-xs">No results yet for this check</p>
             ) : (
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {checkResults.slice(0, 10).map((result, idx) => (
@@ -318,7 +318,7 @@ export function ServiceChecks() {
                         {result.response_time_ms.toFixed(0)}ms
                       </span>
                     </div>
-                    <p className="text-sm text-foreground">{result.message}</p>
+                    <p className="text-xs text-foreground">{result.message}</p>
                     {result.error && (
                       <p className="text-xs text-destructive mt-1">{result.error}</p>
                     )}

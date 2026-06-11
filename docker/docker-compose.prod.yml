@@ -1,42 +1,12 @@
 # ============================================================
-# NetOps - Production Docker Compose Override
+# NetOps — Production Override (no-op)
 # ============================================================
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# docker-compose.yml is now the production configuration.
+# This file exists for backward compatibility only.
 #
-# Changes from base:
-#   - No port binding for postgres (internal only)
-#   - Read-only root filesystem where possible
-#   - No dev/test volumes
-#   - Restart always
+# All production hardening (read-only fs, no exposed DB port,
+# restart: always) is now the default in docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml up -d --build
 # ============================================================
-
-services:
-  postgres:
-    restart: always
-    # In production, remove the port mapping (internal network only)
-    ports: []
-    # Use stronger credentials in production
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-
-  backend:
-    restart: always
-    # Production: no host port binding if behind load balancer / ingress
-    # ports: []
-    read_only: true
-    tmpfs:
-      - /tmp
-
-  frontend:
-    restart: always
-    # Production: typically 80 or 443
-    # ports:
-    #   - "80:80"
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /var/cache/nginx
-      - /var/run

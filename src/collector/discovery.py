@@ -7,6 +7,7 @@ import socket
 from typing import Any, Optional
 
 from .spike_snmp import get_sys_descr
+from .topology_builder import classify_device
 
 # Common ports to scan for non-SNMP discovery
 COMMON_PORTS = [22, 80, 443, 445, 3389, 8291, 8728, 8080, 53, 21, 23, 161, 162]
@@ -35,6 +36,7 @@ async def discover_devices(
     timeout: float = 1.0,
     max_concurrent: int = 50,
     method: str = "all",
+    device_found_event_emitter: Optional[Any] = None,
 ) -> list[dict[str, Any]]:
     """
     Discover responsive devices in a network range.
@@ -60,11 +62,11 @@ async def discover_devices(
         if network.num_addresses > _MAX_HOSTS:
             return []
         hosts = [str(host) for host in network.hosts()]
-        return await _scan_hosts(hosts, community, timeout, max_concurrent, method)
+        return await _scan_hosts(hosts, community, timeout, max_concurrent, method, device_found_event_emitter)
     except ValueError:
         pass
 
-    return await _discover_range(network_range, community, timeout, max_concurrent, method)
+    return await _discover_range(network_range, community, timeout, max_concurrent, method, device_found_event_emitter)
 
 
 async def _discover_range(
@@ -73,6 +75,7 @@ async def _discover_range(
     timeout: float,
     max_concurrent: int,
     method: str,
+    device_found_event_emitter: Optional[Any] = None,
 ) -> list[dict[str, Any]]:
     """Discover devices in a simple IP range like 192.168.1.1-100."""
     parts = range_str.split("-")
@@ -98,7 +101,7 @@ async def _discover_range(
         return []
 
     hosts = [f"{base_prefix}.{i}" for i in range(start, end + 1)]
-    return await _scan_hosts(hosts, community, timeout, max_concurrent, method)
+    return await _scan_hosts(hosts, community, timeout, max_concurrent, method, device_found_event_emitter)
 
 
 async def _scan_hosts(
@@ -107,16 +110,31 @@ async def _scan_hosts(
     timeout: float,
     max_concurrent: int,
     method: str,
+    device_found_event_emitter: Optional[Any] = None,
 ) -> list[dict[str, Any]]:
     """Scan a list of hosts using the specified discovery method."""
     semaphore = asyncio.Semaphore(max_concurrent)
-    results = []
+    results: list[dict[str, Any]] = []
 
     async def scan_host(host: str) -> Optional[dict[str, Any]]:
         async with semaphore:
             device = await _probe_host(host, community, timeout, method)
             if device:
                 results.append(device)
+                # Emit real-time event immediately on discovery
+                if device_found_event_emitter is not None:
+                    try:
+                        method_used = device.get("discovery_method", "unknown")
+                        await device_found_event_emitter({
+                            "type": "device_found",
+                            "ip_address": device["ip_address"],
+                            "method": method_used,
+                            "sys_descr": device.get("sys_descr", ""),
+                            "is_new": True,  # Will be reconciled later by caller
+                            "total": len(results),  # Running count for UI progress
+                        })
+                    except Exception:
+                        pass
             return device
 
     # Batch hosts to cap total concurrent asyncio tasks and smooth CPU curve
@@ -309,7 +327,8 @@ async def add_discovered_devices(
         scanned = 0  # Simple range; could count but not critical
 
     discovered = await discover_devices(
-        network_range, community, timeout, max_concurrent, method
+        network_range, community, timeout, max_concurrent, method,
+        device_found_event_emitter=device_found_event_emitter,
     )
 
     stats = {
@@ -322,6 +341,8 @@ async def add_discovered_devices(
     for device in discovered:
         method_used = device.get("discovery_method", "unknown")
         stats["by_method"][method_used] = stats["by_method"].get(method_used, 0) + 1
+        sys_descr = device.get("sys_descr", "")
+        node_type = classify_device(sys_descr=sys_descr, name=device.get("name", ""))
 
         # Check if device already exists
         existing = await db_client.get_device(device["ip_address"])
@@ -330,26 +351,21 @@ async def add_discovered_devices(
                 {
                     "ip_address": device["ip_address"],
                     "community": device.get("community", community),
-                    "sys_descr": device.get("sys_descr", ""),
+                    "sys_descr": sys_descr,
+                    "node_type": node_type,
                     "status": device.get("status", "online"),
                     "discovery_method": method_used,
                 }
             )
             stats["added"] += 1
-
-        # Emit device_found event for real-time frontend feedback
-        if device_found_event_emitter is not None:
-            try:
-                await device_found_event_emitter({
-                    "type": "device_found",
-                    "ip_address": device["ip_address"],
-                    "method": method_used,
-                    "sys_descr": device.get("sys_descr", ""),
-                    "is_new": not existing,
-                    "total": len(discovered),
-                })
-            except Exception:
-                pass
+        else:
+            await db_client.update_device(existing["id"], {
+                "status": "online",
+                "sys_descr": sys_descr or existing.get("sys_descr", ""),
+                "node_type": node_type,
+                "discovery_method": method_used,
+            })
+            stats["updated"] += 1
 
     return stats
 
@@ -432,6 +448,7 @@ async def rescan_and_merge(
     # 1. probe the range
     discovered = await discover_devices(
         network_range, community, timeout, max_concurrent, method,
+        device_found_event_emitter=device_found_event_emitter,
     )
     discovered_ips = {d["ip_address"] for d in discovered}
 
@@ -467,12 +484,14 @@ async def rescan_and_merge(
         ip = dev["ip_address"]
         method_used = dev.get("discovery_method", "snmp")
         sys_descr = dev.get("sys_descr", "")
+        node_type = classify_device(sys_descr=sys_descr, name=dev.get("name", ""))
         stats["by_method"][method_used] = stats["by_method"].get(method_used, 0) + 1
         existing = current_by_ip.get(ip)
         if existing:
             update_data = {
                 "status": "online",
                 "sys_descr": sys_descr or existing.get("sys_descr", ""),
+                "node_type": node_type,
                 "last_scanned": now_iso,
                 "discovery_method": method_used,
             }
@@ -490,24 +509,11 @@ async def rescan_and_merge(
                 "ip_address": ip,
                 "community": dev.get("community", community),
                 "sys_descr": sys_descr,
+                "node_type": node_type,
                 "status": "online",
                 "discovery_method": method_used,
             })
             stats["added"] += 1
-
-        # Emit device_found event for real-time frontend feedback
-        if device_found_event_emitter is not None:
-            try:
-                await device_found_event_emitter({
-                    "type": "device_found",
-                    "ip_address": ip,
-                    "method": method_used,
-                    "sys_descr": sys_descr,
-                    "is_new": not existing,
-                    "total": len(discovered),
-                })
-            except Exception:
-                pass
 
     # 3b. mark missing devices offline (skip manual if preserve_manual)
     for ip, dev in current_by_ip.items():

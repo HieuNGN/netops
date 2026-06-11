@@ -93,7 +93,7 @@ export function TopologyHistory() {
           <select
             value={filters.event_type}
             onChange={(e) => setFilters(f => ({ ...f, event_type: e.target.value, offset: 0 }))}
-            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-sm"
+            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-xs"
           >
             <option value="">All</option>
             <option value="topology_change">Topology Change</option>
@@ -109,7 +109,7 @@ export function TopologyHistory() {
             type="datetime-local"
             value={filters.from_time}
             onChange={(e) => setFilters(f => ({ ...f, from_time: e.target.value, offset: 0 }))}
-            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-sm"
+            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-xs"
           />
         </div>
         <div>
@@ -118,7 +118,7 @@ export function TopologyHistory() {
             type="datetime-local"
             value={filters.to_time}
             onChange={(e) => setFilters(f => ({ ...f, to_time: e.target.value, offset: 0 }))}
-            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-sm"
+            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-xs"
           />
         </div>
         <div>
@@ -126,7 +126,7 @@ export function TopologyHistory() {
           <select
             value={filters.limit}
             onChange={(e) => setFilters(f => ({ ...f, limit: parseInt(e.target.value), offset: 0 }))}
-            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-sm"
+            className="px-2 py-1 border border-input bg-card text-foreground rounded-sm text-xs"
           >
             <option value={50}>50</option>
             <option value={100}>100</option>
@@ -136,7 +136,7 @@ export function TopologyHistory() {
         </div>
         <button
           onClick={() => setFilters({ limit: 100, event_type: '', from_time: '', to_time: '', offset: 0 })}
-          className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground border border-input rounded-sm"
+          className="px-3 py-1 text-xs text-muted-foreground hover:text-foreground border border-input rounded-sm"
         >
           Reset
         </button>
@@ -161,7 +161,7 @@ export function TopologyHistory() {
 
       <div className="bg-card rounded-sm shadow-sm border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-foreground">Change Events ({total})</h2>
+          <h2 className="text-xs font-semibold text-foreground">Change Events ({total})</h2>
         </div>
 
         <div className="overflow-x-auto">
@@ -188,13 +188,13 @@ export function TopologyHistory() {
               ) : (
                 events.map((event) => (
                   <tr key={event.id} className="hover:bg-muted">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground font-mono">{formatDate(event.recorded_at)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-muted-foreground font-mono">{formatDate(event.recorded_at)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="inline-flex px-2 py-1 rounded-sm text-xs font-medium bg-muted text-foreground">
                         {EVENT_LABELS[event.event_type] || event.event_type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-foreground">{eventDescription(event)}</td>
+                    <td className="px-6 py-4 text-xs text-foreground">{eventDescription(event)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {event.new_status ? (
                         <span className={`inline-flex px-2 py-1 rounded-sm text-xs font-medium ${
@@ -232,17 +232,17 @@ export function TopologyHistory() {
             <button
               disabled={filters.offset === 0}
               onClick={() => setFilters(f => ({ ...f, offset: Math.max(0, f.offset - f.limit) }))}
-              className="px-3 py-1 text-sm text-foreground border border-input rounded-sm disabled:opacity-50"
+              className="px-3 py-1 text-xs text-foreground border border-input rounded-sm disabled:opacity-50"
             >
               Previous
             </button>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {filters.offset + 1}–{Math.min(filters.offset + filters.limit, total)} of {total}
             </span>
             <button
               disabled={filters.offset + filters.limit >= total}
               onClick={() => setFilters(f => ({ ...f, offset: f.offset + f.limit }))}
-              className="px-3 py-1 text-sm text-foreground border border-input rounded-sm disabled:opacity-50"
+              className="px-3 py-1 text-xs text-foreground border border-input rounded-sm disabled:opacity-50"
             >
               Next
             </button>

@@ -9,9 +9,8 @@ function toColor(val: string): string {
   return /^\d/.test(val) ? `hsl(${val})` : val;
 }
 
-/* Cache canvas colors to avoid getComputedStyle in the 60fps render loop.
-   Re-read only when the dark/light theme class on <html> changes. */
 const COLORS: Record<string, string> = {};
+
 function readCanvasColors() {
   const cs = getComputedStyle(window.document.documentElement);
   const read = (name: string) => toColor(cs.getPropertyValue(name).trim());
@@ -39,17 +38,159 @@ const observer = new MutationObserver((mutations) => {
 });
 observer.observe(window.document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
-function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number) {
-  const label = node.label || node.id;
-  const fontSize = Math.max(10, 12 / globalScale);
-  const nodeRadius = 7;
+const TYPE_COLORS: Record<string, string> = {
+  router: 'var(--canvas-router)',
+  switch: 'var(--canvas-switch)',
+  firewall: 'var(--canvas-firewall)',
+  access_point: 'var(--canvas-router)',
+  server: 'var(--canvas-default)',
+  host: 'var(--canvas-default)',
+  end_device: 'var(--canvas-default)',
+};
 
-  const baseColor = node.node_type === 'router' ? COLORS['router']
-    : node.node_type === 'firewall' ? COLORS['firewall']
-    : node.node_type === 'switch' ? COLORS['switch']
-    : COLORS['default'];
-  /* Offline nodes must remain visible: use offline red instead of blending into gray canvas */
+function drawRouter(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, globalScale: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = COLORS['nodeStroke'];
+  ctx.lineWidth = Math.max(1.2, 1.8 / globalScale);
+  for (let i = 0; i < 4; i++) {
+    const angle = (i / 4) * Math.PI * 2 - Math.PI / 4;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * r * 0.5, Math.sin(angle) * r * 0.5);
+    ctx.lineTo(Math.cos(angle) * (r + Math.max(3, 4 / globalScale)), Math.sin(angle) * (r + Math.max(3, 4 / globalScale)));
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSwitch(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, color: string, globalScale: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = color;
+  ctx.fillRect(-s, -s * 0.7, s * 2, s * 1.4);
+  ctx.strokeStyle = COLORS['nodeStroke'];
+  ctx.lineWidth = Math.max(1, 1.5 / globalScale);
+  ctx.strokeRect(-s, -s * 0.7, s * 2, s * 1.4);
+  const portCount = 4;
+  const gap = (s * 1.8) / (portCount + 1);
+  const portDot = Math.max(1.5, 2.5 / globalScale);
+  for (let i = 0; i < portCount; i++) {
+    const px = -s * 0.8 + gap * (i + 1);
+    ctx.beginPath();
+    ctx.arc(px, 0, portDot, 0, 2 * Math.PI);
+    ctx.fillStyle = COLORS['nodeStroke'];
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawFirewall(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, color: string, globalScale: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.moveTo(0, -s);
+  ctx.lineTo(s, 0);
+  ctx.lineTo(0, s);
+  ctx.lineTo(-s, 0);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = COLORS['nodeStroke'];
+  ctx.lineWidth = Math.max(1, 1.5 / globalScale);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawServer(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, color: string, globalScale: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = color;
+  ctx.fillRect(-s * 0.5, -s, s, s * 2);
+  ctx.strokeStyle = COLORS['nodeStroke'];
+  ctx.lineWidth = Math.max(1, 1.5 / globalScale);
+  ctx.strokeRect(-s * 0.5, -s, s, s * 2);
+  const slotDot = Math.max(1, 1.5 / globalScale);
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.6 + i * s * 0.6, slotDot, 0, 2 * Math.PI);
+    ctx.fillStyle = COLORS['nodeStroke'];
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawHost(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, color: string, globalScale: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -s);
+  ctx.lineTo(s * 0.8, -s * 0.3);
+  ctx.lineTo(s * 0.8, s * 0.3);
+  ctx.lineTo(0, s);
+  ctx.lineTo(-s * 0.8, s * 0.3);
+  ctx.lineTo(-s * 0.8, -s * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = COLORS['nodeStroke'];
+  ctx.lineWidth = Math.max(1, 1.5 / globalScale);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawAccessPoint(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, color: string, globalScale: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(0, 0, s, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.strokeStyle = COLORS['nodeStroke'];
+  ctx.lineWidth = Math.max(1, 1.5 / globalScale);
+  ctx.stroke();
+  const arcLen = Math.max(1, 1.5 / globalScale);
+  ctx.beginPath();
+  ctx.arc(0, 0, s * 2, Math.PI * 0.25, Math.PI * 0.75);
+  ctx.lineWidth = arcLen;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, s * 3, Math.PI * 0.3, Math.PI * 0.7);
+  ctx.lineWidth = arcLen;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number) {
+  const nameLabel = node.label || node.id;
+  const ipLabel = node.id !== nameLabel ? node.id : '';
+  const fontSize = Math.max(9, 10 / globalScale);
+  const ipFontSize = Math.max(7, 7 / globalScale);
+  const nodeRadius = Math.max(6, 10 / globalScale);
+
+  const baseColor = TYPE_COLORS[node.node_type] || COLORS['default'];
   const color = node.status === 'offline' ? COLORS['offline'] : baseColor;
+
+  ctx.save();
+
+  if (node.node_type === 'router') {
+    drawRouter(ctx, node.x, node.y, nodeRadius * 2.2, color, globalScale);
+  } else if (node.node_type === 'switch') {
+    drawSwitch(ctx, node.x, node.y, nodeRadius * 2, color, globalScale);
+  } else if (node.node_type === 'firewall') {
+    drawFirewall(ctx, node.x, node.y, nodeRadius * 2.4, color, globalScale);
+  } else if (node.node_type === 'access_point') {
+    drawAccessPoint(ctx, node.x, node.y, nodeRadius * 1.7, color, globalScale);
+  } else if (node.node_type === 'server') {
+    drawServer(ctx, node.x, node.y, nodeRadius * 2, color, globalScale);
+  } else {
+    drawHost(ctx, node.x, node.y, nodeRadius * 2, color, globalScale);
+  }
+
+  ctx.restore();
 
   ctx.save();
   ctx.shadowColor = COLORS['canvasShadow'];
@@ -57,25 +198,15 @@ function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number)
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2 / globalScale;
 
-  ctx.beginPath();
-  ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.restore();
-
-  ctx.strokeStyle = COLORS['nodeStroke'];
-  ctx.lineWidth = 1.8 / globalScale;
-  ctx.stroke();
-
   ctx.font = `500 ${fontSize}px IBM Plex Sans, system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
 
-  const textY = node.y + nodeRadius + 5 / globalScale;
-  const textMetrics = ctx.measureText(label);
+  const textMetrics = ctx.measureText(nameLabel);
   const textWidth = textMetrics.width;
   const textHeight = fontSize;
   const pad = 3 / globalScale;
+  const textY = node.y + nodeRadius * 2.5 + 6 / globalScale;
 
   ctx.fillStyle = COLORS['haloBg'];
   ctx.beginPath();
@@ -83,24 +214,33 @@ function drawNode(node: any, ctx: CanvasRenderingContext2D, globalScale: number)
     node.x - textWidth / 2 - pad,
     textY - pad,
     textWidth + pad * 2,
-    textHeight + pad * 2,
+    textHeight + (ipLabel ? ipFontSize + pad : 0) + pad * 2,
     2 / globalScale,
   );
   ctx.fill();
 
   ctx.fillStyle = COLORS['haloFg'];
-  ctx.fillText(label, node.x, textY);
+  ctx.fillText(nameLabel, node.x, textY);
 
-  /* Status dot — Cisco Green online, IBM Red offline */
+  if (ipLabel) {
+    ctx.font = `400 ${ipFontSize}px IBM Plex Sans, system-ui, sans-serif`;
+    ctx.fillStyle = COLORS['haloFg'] + 'aa';
+    ctx.fillText(ipLabel, node.x, textY + textHeight + 1);
+  }
+
+  ctx.restore();
+
   const statusColor = node.status === 'online' ? COLORS['online']
     : node.status === 'offline' ? COLORS['offline']
     : COLORS['default'];
+  const dotX = node.x + nodeRadius + 2 / globalScale;
+  const dotY = node.y - nodeRadius - 2 / globalScale;
   ctx.beginPath();
-  ctx.arc(node.x + nodeRadius - 1.5, node.y - nodeRadius + 1.5, 2.8, 0, 2 * Math.PI);
+  ctx.arc(dotX, dotY, Math.max(2.5, 3 / globalScale), 0, 2 * Math.PI);
   ctx.fillStyle = statusColor;
   ctx.fill();
   ctx.strokeStyle = COLORS['nodeStroke'];
-  ctx.lineWidth = 1 / globalScale;
+  ctx.lineWidth = Math.max(1, 1.5 / globalScale);
   ctx.stroke();
 }
 
@@ -135,6 +275,34 @@ export function Topology() {
     const filteredLinks = topology.links.filter(
       (l) => nodeIds.has(l.source_id) && nodeIds.has(l.target_id)
     );
+
+    const parentIdMap = new Map<string, string | undefined>();
+    for (const n of filteredNodes) {
+      parentIdMap.set(n.id, n.parent_id);
+    }
+
+    const orientedLinks = hierarchical
+      ? filteredLinks
+          .map((l) => {
+            const srcParent = parentIdMap.get(l.source_id);
+            const tgtParent = parentIdMap.get(l.target_id);
+            if (tgtParent === l.source_id) {
+              return { source: l.source_id, target: l.target_id, source_port: l.source_port, target_port: l.target_port, status: l.status };
+            }
+            if (srcParent === l.target_id) {
+              return { source: l.target_id, target: l.source_id, source_port: l.target_port, target_port: l.source_port, status: l.status };
+            }
+            return null;
+          })
+          .filter((l): l is NonNullable<typeof l> => l !== null)
+      : filteredLinks.map((l) => ({
+          source: l.source_id,
+          target: l.target_id,
+          source_port: l.source_port,
+          target_port: l.target_port,
+          status: l.status,
+        }));
+
     return {
       nodes: filteredNodes.map((n) => ({
         id: n.id,
@@ -143,17 +311,13 @@ export function Topology() {
         node_type: n.node_type,
         device_id: n.device_id,
         network_id: n.network_id,
-        level: n.level ?? (n.node_type === 'firewall' ? 0 : n.node_type === 'router' ? 1 : n.node_type === 'switch' ? 3 : 2),
+        level: n.level ?? 0,
+        parent_id: n.parent_id,
+        role: n.role,
       })),
-      links: filteredLinks.map((l) => ({
-        source: l.source_id,
-        target: l.target_id,
-        source_port: l.source_port,
-        target_port: l.target_port,
-        status: l.status,
-      })),
+      links: orientedLinks,
     };
-  }, [topology.nodes, topology.links, statusFilter, typeFilter, networkFilter]);
+  }, [topology.nodes, topology.links, statusFilter, typeFilter, networkFilter, hierarchical]);
 
   const handleNodeClick = (node: any) => {
     setSelectedNode(node);
@@ -205,7 +369,7 @@ export function Topology() {
                 <span className="hidden sm:inline">{isStreaming ? 'Live' : 'Connecting...'}</span>
               </div>
             </div>
-            <p className="text-muted-foreground text-sm mt-1">
+            <p className="text-muted-foreground text-xs mt-1">
               {graphData.nodes.length} nodes • {graphData.links.length} links
               {(statusFilter !== 'all' || typeFilter !== 'all' || networkFilter !== 'all') && (
                 <span className="text-foreground font-medium">
@@ -250,7 +414,7 @@ export function Topology() {
             </button>
             <button
               onClick={() => setHierarchical((v) => !v)}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-sm text-sm font-medium ${
+              className={`flex items-center space-x-2 px-3 py-2 rounded-sm text-xs font-medium ${
                 hierarchical
                   ? 'bg-ibm-purple text-white'
                   : 'text-muted-foreground hover:bg-surface-hover'
@@ -279,8 +443,10 @@ export function Topology() {
             { value: 'router', label: 'router' },
             { value: 'switch', label: 'switch' },
             { value: 'firewall', label: 'firewall' },
+            { value: 'access_point', label: 'access point' },
             { value: 'server', label: 'server' },
             { value: 'host', label: 'host' },
+            { value: 'end_device', label: 'end device' },
           ]} />
           <FilterSelect
             label="network"
@@ -314,14 +480,15 @@ export function Topology() {
           }}
         >
           <ForceGraph2D
+            key={hierarchical ? 'dag' : 'force'}
             ref={graphRef}
             graphData={graphData}
             dagMode={hierarchical ? 'td' : undefined}
-            dagLevelDistance={hierarchical ? 120 : undefined}
+            dagLevelDistance={hierarchical ? 160 : undefined}
             nodeCanvasObject={drawNode}
-            nodeRelSize={6}
+            nodeRelSize={10}
             linkColor={linkColorFn}
-            linkWidth={2}
+            linkWidth={2.5}
             linkDirectionalArrowLength={hierarchical ? 6 : 0}
             nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D, _globalScale: number) => {
               ctx.fillStyle = color;
@@ -336,13 +503,24 @@ export function Topology() {
             d3AlphaDecay={hierarchical ? 0 : 0.015}
             d3VelocityDecay={hierarchical ? 0 : 0.3}
             warmupTicks={hierarchical ? 0 : 100}
+            onEngineStop={() => {
+              if (!hierarchical) {
+                const fg = graphRef.current;
+                if (fg && fg.d3Force && fg.d3ReheatSimulation) {
+                  try {
+                    fg.d3Force('x', null);
+                    fg.d3Force('y', null);
+                  } catch {}
+                }
+              }
+            }}
           />
         </div>
 
         {selectedNode && (
           <div className="w-80 bg-card border-l border-border p-6 overflow-y-auto">
             <div className="flex justify-between items-start mb-4">
-              <h2 className="text-lg font-semibold text-foreground">
+              <h2 className="text-xs font-semibold text-foreground">
                 {selectedNode.type === 'link' ? 'Link Details' : selectedNode.label}
               </h2>
               <button
@@ -357,21 +535,21 @@ export function Topology() {
               {selectedNode.type === 'link' ? (
                 <>
                   <div>
-                    <p className="text-sm text-muted-foreground">Source</p>
+                    <p className="text-xs text-muted-foreground">Source</p>
                     <p className="font-medium text-foreground">{selectedNode.source}</p>
                     {selectedNode.source_port && (
-                      <p className="text-sm text-muted-foreground">Port: {selectedNode.source_port}</p>
+                      <p className="text-xs text-muted-foreground">Port: {selectedNode.source_port}</p>
                     )}
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Target</p>
+                    <p className="text-xs text-muted-foreground">Target</p>
                     <p className="font-medium text-foreground">{selectedNode.target}</p>
                     {selectedNode.target_port && (
-                      <p className="text-sm text-muted-foreground">Port: {selectedNode.target_port}</p>
+                      <p className="text-xs text-muted-foreground">Port: {selectedNode.target_port}</p>
                     )}
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Status</p>
+                    <p className="text-xs text-muted-foreground">Status</p>
                     <div className={`inline-block px-2 py-1 rounded-sm text-xs font-medium ${
                         selectedNode.status === 'active'
                           ? 'bg-badge-success-bg text-badge-success-fg'
@@ -384,19 +562,25 @@ export function Topology() {
               ) : (
                 <>
                   <div>
-                    <p className="text-sm text-muted-foreground">Node ID</p>
-                    <p className="font-mono text-sm text-foreground">{selectedNode.id}</p>
+                    <p className="text-xs text-muted-foreground">Node ID</p>
+                    <p className="font-mono text-xs text-foreground">{selectedNode.id}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Label</p>
+                    <p className="text-xs text-muted-foreground">Label</p>
                     <p className="font-medium text-foreground">{selectedNode.label}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Type</p>
+                    <p className="text-xs text-muted-foreground">Type</p>
                     <p className="text-foreground capitalize">{selectedNode.node_type}</p>
                   </div>
+                  {selectedNode.role && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Role</p>
+                      <p className="text-foreground capitalize">{selectedNode.role}</p>
+                    </div>
+                  )}
                   <div>
-                    <p className="text-sm text-muted-foreground">Status</p>
+                    <p className="text-xs text-muted-foreground">Status</p>
                       <span
                         className={`inline-block px-2 py-1 rounded-sm text-xs font-medium ${
                           selectedNode.status === 'online'
@@ -411,10 +595,53 @@ export function Topology() {
                   </div>
                   {selectedNode.device_id && (
                     <div>
-                      <p className="text-sm text-muted-foreground">Device ID</p>
-                      <p className="font-mono text-sm text-foreground">{selectedNode.device_id}</p>
+                      <p className="text-xs text-muted-foreground">Device ID</p>
+                      <p className="font-mono text-xs text-foreground">{selectedNode.device_id}</p>
                     </div>
                   )}
+                  {selectedNode.parent_id && (() => {
+                    const parentNode = graphData.nodes.find(n => n.id === selectedNode.parent_id);
+                    return (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Connected to</p>
+                        <button
+                          onClick={() => {
+                            const p = graphData.nodes.find(n => n.id === selectedNode.parent_id);
+                            if (p) {
+                              setSelectedNode(p);
+                              graphRef.current?.centerOn(p, 400);
+                            }
+                          }}
+                          className="font-medium text-foreground hover:text-cisco-teal underline cursor-pointer"
+                        >
+                          {parentNode?.label || selectedNode.parent_id}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const children = graphData.nodes.filter(n => n.parent_id === selectedNode.id);
+                    if (children.length === 0) return null;
+                    return (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Children ({children.length})</p>
+                        <div className="space-y-1 mt-1">
+                          {children.map(child => (
+                            <button
+                              key={child.id}
+                              onClick={() => {
+                                setSelectedNode(child);
+                                graphRef.current?.centerOn(child, 400);
+                              }}
+                              className="block text-xs text-foreground hover:text-cisco-teal underline cursor-pointer"
+                            >
+                              {child.label || child.id}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>

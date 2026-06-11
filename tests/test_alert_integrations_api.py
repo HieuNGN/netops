@@ -1,10 +1,20 @@
-"""API endpoint tests for alert config dedup, update, delete, and integrations."""
+"""API endpoint tests for alert config dedup, update, delete, and integrations.
+
+All tests in this file use an isolated temp SQLite database so they
+never leak alert_configs / integrations / alert_history into the
+real PostgreSQL DB.
+"""
 
 import os
+import sys
 import tempfile
 import uuid
 
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only-32chars")
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 import pytest
 import pytest_asyncio
@@ -12,17 +22,49 @@ from httpx import AsyncClient, ASGITransport
 from asgi_lifespan import LifespanManager
 
 
+def _run_alembic_upgrade_head(db_path: str) -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(
+        os.path.join(_PROJECT_ROOT, "src", "storage", "alembic.ini")
+    )
+    config.set_main_option(
+        "script_location",
+        os.path.join(_PROJECT_ROOT, "src", "storage", "migrations"),
+    )
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    command.upgrade(config, "head")
+
+
 @pytest_asyncio.fixture(scope="function")
 async def client():
+    """Test client with isolated temp SQLite — zero PG leakage."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    db_path = tmp.name
+    _run_alembic_upgrade_head(db_path)
+
+    os.environ.setdefault("NETOPS_USE_SQLITE", "1")
+    os.environ["NETOPS_SQLITE_PATH"] = db_path
+
     from src.api.services.auth import create_access_token
     token = create_access_token("admin")
 
     from src.collector.main import app
 
-    async with LifespanManager(app) as manager:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            ac.headers["Authorization"] = f"Bearer {token}"
-            yield ac
+    try:
+        async with LifespanManager(app, startup_timeout=30, shutdown_timeout=10) as manager:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                ac.headers["Authorization"] = f"Bearer {token}"
+                yield ac
+    finally:
+        os.environ.pop("NETOPS_USE_SQLITE", None)
+        os.environ.pop("NETOPS_SQLITE_PATH", None)
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
 
 
 def _uniq_name(prefix: str) -> str:

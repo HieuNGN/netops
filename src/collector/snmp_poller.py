@@ -5,8 +5,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from .spike_snmp import get_sys_descr_async, walk_lldp_neighbors_async, _build_auth
-from .topology_builder import TopologyBuilder
+from .spike_snmp import (
+    get_sys_descr_async,
+    get_sys_name_async,
+    walk_lldp_neighbors_async,
+    _build_auth,
+)
+from .topology_builder import TopologyBuilder, classify_device
 
 
 @dataclass
@@ -17,6 +22,7 @@ class PollResult:
     ip_address: str
     success: bool
     sys_descr: Optional[str] = None
+    sys_name: Optional[str] = None
     neighbors: list[dict[str, Any]] = field(default_factory=list)
     response_time_ms: float = 0
     error: Optional[str] = None
@@ -153,6 +159,7 @@ class SNMPPoller:
 
         results = []
         self._topology_builder.clear()
+        neighbor_counts: dict[str, int] = {}
 
         for device in devices:
             try:
@@ -168,16 +175,35 @@ class SNMPPoller:
             results.append(result)
 
             status = "online" if result.success else "offline"
+            node_type = classify_device(
+                sys_descr=result.sys_descr,
+                name=device.get("name"),
+            )
+            neighbor_counts[device["ip_address"]] = len(result.neighbors)
             self._topology_builder.add_node(
                 node_id=device["ip_address"],
                 label=device.get("name", device["ip_address"]),
                 device_id=device["id"],
-                node_type="device",
+                node_type=node_type,
                 status=status,
                 sys_descr=result.sys_descr,
             )
 
-        self._build_topology_links(devices, results)
+        # --- Fetch gateway before building links ---
+        gateway_ip = None
+        if hasattr(self.db_client, "get_setting"):
+            try:
+                gateway_ip = await self.db_client.get_setting("host_gateway")
+            except Exception:
+                pass
+
+        # Only build LLDP links from gateway if known; otherwise all devices
+        self._build_topology_links(devices, results, gateway_ip=gateway_ip)
+
+        self._topology_builder.compute_hierarchy(
+            gateway_ip=gateway_ip,
+            neighbor_counts=neighbor_counts,
+        )
 
         current_topology = self._topology_builder.to_json()
         try:
@@ -212,22 +238,49 @@ class SNMPPoller:
 
             async with self._poll_semaphore:
                 auth = _build_auth(device)
+                # sysDescr is required — if this fails, device is offline
                 sys_descr = await get_sys_descr_async(ip, auth)
-                neighbors = await walk_lldp_neighbors_async(ip, auth)
+
+                # sysName is optional — used to auto-update device name
+                sys_name = None
+                try:
+                    sys_name = await get_sys_name_async(ip, auth)
+                except Exception as name_err:
+                    import logging
+                    logging.getLogger(__name__).debug(
+                        f"sysName fetch failed for {ip}: {name_err}"
+                    )
+
+                # LLDP walk is optional — many devices don't support it
+                # If it fails, device is still online, just no topology links
+                try:
+                    neighbors = await walk_lldp_neighbors_async(ip, auth)
+                except Exception as lldp_err:
+                    import logging
+                    logging.getLogger(__name__).debug(
+                        f"LLDP walk failed for {ip} (device still online): {lldp_err}"
+                    )
+                    neighbors = []
 
             response_time = (time.time() - start_time) * 1000
             self.stats.add_response_time(response_time)
             self.stats.successful_polls += 1
 
+            # Auto-update device name from SNMP sysName if returned and differs
+            update_payload = {
+                "status": "online",
+                "sys_descr": sys_descr or "",
+                "last_polled": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "offline_since": None,
+            }
+            current_name = device.get("name", "").strip()
+            if sys_name and sys_name != current_name:
+                update_payload["name"] = sys_name
+
             try:
                 await self.db_client.update_device(
                     device["id"],
-                    {
-                        "status": "online",
-                        "sys_descr": sys_descr or "",
-                        "last_polled": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "offline_since": None,
-                    },
+                    update_payload,
                 )
             except Exception as e:
                 print(f"[SNMPPoller] update_device failed for {device['id']}: {e}")
@@ -266,6 +319,7 @@ class SNMPPoller:
                 ip_address=ip,
                 success=True,
                 sys_descr=sys_descr,
+                sys_name=sys_name,
                 neighbors=neighbors,
                 response_time_ms=response_time,
             )
@@ -299,7 +353,7 @@ class SNMPPoller:
                 print(f"[SNMPPoller] add_poll_result failed for {device['id']}: {poll_e}")
 
             await self._emit_status_change(
-                device, "offline", error_msg, response_time_ms=0,
+                device, new_status, error_msg, response_time_ms=0,
             )
 
             return PollResult(
@@ -338,7 +392,7 @@ class SNMPPoller:
             print(f"[SNMPPoller] status change handler error: {e}")
 
     def _build_topology_links(
-        self, devices: list[dict[str, Any]], results: list[PollResult]
+        self, devices: list[dict[str, Any]], results: list[PollResult], gateway_ip: Optional[str] = None
     ):
         ip_to_device = {d["ip_address"]: d for d in devices}
         name_to_device: dict[str, Any] = {}
@@ -346,44 +400,58 @@ class SNMPPoller:
             if d.get("name"):
                 name_to_device[d["name"].lower()] = d
 
+        def _resolve_neighbor(device, neighbor_name, neighbor_port):
+            if neighbor_name == device["ip_address"]:
+                return None
+            if neighbor_name.lower() == device.get("name", "").lower():
+                return None
+
+            if neighbor_name in ip_to_device:
+                return ip_to_device[neighbor_name]
+            if neighbor_name.lower() in name_to_device:
+                return name_to_device[neighbor_name.lower()]
+            for d in devices:
+                if d["ip_address"] == device["ip_address"]:
+                    continue
+                d_name = d.get("name", "").lower()
+                n_name = neighbor_name.lower()
+                if d_name and n_name and (
+                    n_name == d_name or
+                    d_name in n_name or
+                    n_name in d_name
+                ):
+                    return d
+            return None
+
+        # If gateway is known, only use its LLDP to avoid duplicate/conflicting sources
+        if gateway_ip:
+            gateway_device = ip_to_device.get(gateway_ip)
+            if gateway_device:
+                for device, result in zip(devices, results):
+                    if not result.success or device["ip_address"] != gateway_ip:
+                        continue
+                    for neighbor in result.neighbors:
+                        target = _resolve_neighbor(device, neighbor.get("neighbor_name", ""), neighbor.get("neighbor_port", ""))
+                        if target:
+                            self._topology_builder.add_link(
+                                source=device["ip_address"],
+                                target=target["ip_address"],
+                                source_port=neighbor.get("neighbor_port", ""),
+                                target_port="",
+                            )
+                return
+
+        # Fallback: process all devices
         for device, result in zip(devices, results):
             if not result.success:
                 continue
-
             for neighbor in result.neighbors:
-                neighbor_name = neighbor.get("neighbor_name", "")
-                neighbor_port = neighbor.get("neighbor_port", "")
-
-                target_device = None
-
-                if neighbor_name == device["ip_address"]:
-                    continue
-                if neighbor_name.lower() == device.get("name", "").lower():
-                    continue
-
-                if neighbor_name in ip_to_device:
-                    target_device = ip_to_device[neighbor_name]
-                elif neighbor_name.lower() in name_to_device:
-                    target_device = name_to_device[neighbor_name.lower()]
-                else:
-                    for d in devices:
-                        if d["ip_address"] == device["ip_address"]:
-                            continue
-                        d_name = d.get("name", "").lower()
-                        n_name = neighbor_name.lower()
-                        if d_name and n_name and (
-                            n_name == d_name or
-                            d_name in n_name or
-                            n_name in d_name
-                        ):
-                            target_device = d
-                            break
-
-                if target_device:
+                target = _resolve_neighbor(device, neighbor.get("neighbor_name", ""), neighbor.get("neighbor_port", ""))
+                if target:
                     self._topology_builder.add_link(
                         source=device["ip_address"],
-                        target=target_device["ip_address"],
-                        source_port=neighbor_port,
+                        target=target["ip_address"],
+                        source_port=neighbor.get("neighbor_port", ""),
                         target_port="",
                     )
 
@@ -410,6 +478,7 @@ class SNMPPoller:
             return []
         results = []
         self._topology_builder.clear()
+        neighbor_counts: dict[str, int] = {}
         for device in devices:
             try:
                 result = await self._poll_device(device)
@@ -423,15 +492,33 @@ class SNMPPoller:
                 )
             results.append(result)
             status = "online" if result.success else "offline"
+            node_type = classify_device(
+                sys_descr=result.sys_descr,
+                name=device.get("name"),
+            )
+            neighbor_counts[device["ip_address"]] = len(result.neighbors)
             self._topology_builder.add_node(
                 node_id=device["ip_address"],
                 label=device.get("name", device["ip_address"]),
                 device_id=device["id"],
-                node_type="device",
+                node_type=node_type,
                 status=status,
                 sys_descr=result.sys_descr,
             )
-        self._build_topology_links(devices, results)
+        gateway_ip = None
+        if hasattr(self.db_client, "get_setting"):
+            try:
+                gateway_ip = await self.db_client.get_setting("host_gateway")
+            except Exception:
+                pass
+
+        self._build_topology_links(devices, results, gateway_ip=gateway_ip)
+
+        self._topology_builder.compute_hierarchy(
+            gateway_ip=gateway_ip,
+            neighbor_counts=neighbor_counts,
+        )
+
         current_topology = self._topology_builder.to_json()
         try:
             await self.db_client.upsert_topology(

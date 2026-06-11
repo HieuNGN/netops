@@ -39,7 +39,7 @@ export function Header() {
           <div className="flex items-center gap-3">
             <Link to="/" className="flex items-center space-x-2">
               <Network className="h-6 w-6 text-thinkpad-red" />
-              <span className="text-lg font-semibold text-foreground">NetOps</span>
+              <span className="text-xs font-semibold text-foreground">NetOps</span>
             </Link>
             <div
               className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide rounded-sm bg-surface-subtle text-muted-foreground"
@@ -58,7 +58,7 @@ export function Header() {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-sm text-sm font-medium transition-colors ${
+                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-sm text-xs font-medium transition-colors ${
                     isActive
                       ? 'bg-ibm-blue/10 text-ibm-blue'
                       : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground'

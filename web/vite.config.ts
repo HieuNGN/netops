@@ -45,6 +45,16 @@ export default defineConfig({
           if (API_PREFIX_GROUPS.some((p) => path.startsWith(p))) return path;
           return path.replace(/^\/api/, '');
         },
+        // SSE streams must not be buffered by the proxy
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes, req) => {
+            if (req.url?.includes('/stream')) {
+              // Disable proxy buffering for SSE
+              proxyRes.headers['cache-control'] = 'no-cache';
+              proxyRes.headers['x-accel-buffering'] = 'no';
+            }
+          });
+        },
       },
     },
   },

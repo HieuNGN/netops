@@ -24,7 +24,8 @@ export function useTopology() {
   useEffect(() => {
     const connectStream = () => {
       const streamUrl = topologyApi.getStreamUrl();
-      eventSourceRef.current = new EventSource(streamUrl);
+      // withCredentials ensures cookies (JWT token) are sent with SSE
+      eventSourceRef.current = new EventSource(streamUrl, { withCredentials: true });
 
       eventSourceRef.current.onmessage = (event) => {
         const data = JSON.parse(event.data) as {

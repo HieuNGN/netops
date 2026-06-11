@@ -36,7 +36,7 @@ export function InlineEditableField({ value, onSave, className }: Props) {
         onChange={(e) => setDraft(e.target.value)}
         onBlur={save}
         onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
-        className={`px-1 py-0.5 text-sm border rounded-sm bg-card border-ring focus:ring-1 focus:ring-ring outline-none text-foreground ${saving ? 'opacity-50' : ''} ${className || ''}`}
+        className={`px-1 py-0.5 text-xs border rounded-sm bg-card border-ring focus:ring-1 focus:ring-ring outline-none text-foreground ${saving ? 'opacity-50' : ''} ${className || ''}`}
         disabled={saving}
       />
     );

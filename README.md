@@ -140,16 +140,6 @@ docker compose up -d --build
 
 ---
 
-## Testing
-
-```bash
-pytest tests/ -v          # all 105 tests
-pytest tests/test_api.py  # API integration
-./scripts/test.sh         # full smoke test (starts/stops server)
-```
-
----
-
 ## Project Structure
 
 ```
@@ -211,20 +201,19 @@ netops/
 | PostgreSQL | Done | asyncpg, connection pooling, Alembic migrations |
 | Service checks | Done | HTTP, TCP, DNS, Ping, SSL |
 | React dashboard | Done | SSE streaming, charts, topology graph, full CRUD |
-| CPU optimization | Done | batching, semaphores, single-tick scheduler, `--reload-dir` fix (1.2% idle) |
+| CPU optimization | In Progress | batching, semaphores, single-tick scheduler |
 | Network management | Done | slide-out drawer, 11 types, inline rename, tags, device counts |
 | Poll history retention | Done | 30-day TTL, hourly cleanup loop |
 | LLDP correlation | Done | multi-strategy matching (IP, name, substring) |
-| Docker | Done | multi-container compose, nginx, health checks |
+| Docker | Building | multi-container compose, nginx, health checks |
 | Auth & RBAC | Done | JWT login, protected routes, admin bootstrap |
 | Dynamic config | Done | settings → DB → poller read on startup |
 | SNMPv3 | Done | UsmUserData, auth/priv protocols, per-device version |
 | Bulk device import | Done | CSV/JSON upload + paste, parse + POST /devices/import |
 | Environment profiles | Done | homelab / small_business / datacenter with auto-detection |
-| Merge-based discovery | Done | non-destructive merge, stale device lifecycle (72h threshold) |
 | Per-type check intervals | Done | HTTP/TCP/DNS/Ping/SSL with profile-driven defaults |
 | SNMP trap listener | Done | UDP trap receiver, linkUp/linkDown events, SSE broadcast |
-| Cookie-only auth | Done | HttpOnly + SameSite=Strict + Secure cookies, Bearer fallback removed |
+| Cookie-only auth | Done | HttpOnly + SameSite=Strict + Secure cookies |
 | Distributed agents | Planned | remote pollers, central aggregator |
 
 ---
@@ -240,5 +229,3 @@ curl -X POST http://localhost:8000/topology/simulate
 ```
 
 ---
-
-

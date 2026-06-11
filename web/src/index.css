@@ -226,9 +226,9 @@
   /* Chart & canvas — dark */
   --grid-bg: #1e2230;
   --grid-dot: #3a4050;
-  --chart-tooltip-bg: 220 14% 18%;
+  --chart-tooltip-bg: 220 14% 28%;
   --chart-tooltip-fg: 0 0% 96%;
-  --chart-tooltip-border: 220 14% 28%;
+  --chart-tooltip-border: 220 14% 40%;
   --chart-axis: 220 10% 60%;
   --canvas-link-color: #5a6070;
   --canvas-router: #e85a5a;

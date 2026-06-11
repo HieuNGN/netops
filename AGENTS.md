@@ -8,7 +8,7 @@ Auto-read on every session. Project facts only — keep it lean.
 
 Network topology discovery + service monitoring. FastAPI backend, React/TypeScript SPA. Built for datacenter and homelab environments.
 
-SNMPv2c/v3 device discovery, LLDP topology mapping, real-time SSE dashboard, multi-channel alerting, periodic service checks (HTTP/TCP/DNS/Ping/SSL), PostgreSQL DB.
+SNMPv2c/v3 device discovery, LLDP topology mapping, real-time SSE dashboard, multi-channel alerting, periodic service checks (HTTP/TCP/DNS/Ping/SSL), anomaly detection, PostgreSQL DB.
 
 ---
 
@@ -21,12 +21,13 @@ netops/
 │   │   ├── main.py               # routes, Pydantic models, lifespan, SSE
 │   │   ├── snmp_poller.py        # periodic polling orchestrator
 │   │   ├── spike_snmp.py         # low-level pysnmp queries + CLI
+│   │   ├── snmp_trap_listener.py # raw asyncio UDP + BER parser
 │   │   ├── host_state.py         # host network fingerprint + persistence
 │   │   ├── network_watcher.py    # periodic (cidr, gateway) change detector
 │   │   ├── topology_builder.py   # LLDP → node/link graph
 │   │   ├── discovery.py          # subnet scanner (ICMP + SNMP)
 │   │   ├── host_detect.py        # auto-detect host IP/CIDR/gateway
-│   │   ├── config.py             # SNMPConfig / ServerConfig dataclasses
+│   │   ├── config.py             # SNMPConfig / ServerConfig / NetOpsConfig dataclasses
 │   │   ├── utils.py              # logger
 │   │   └── checks/               # service check engine
 │   │       ├── base.py
@@ -42,8 +43,10 @@ netops/
 │   │   ├── alembic.ini
 │   │   └── migrations/           # Alembic revisions
 │   └── api/services/             # cross-cutting services
-│       ├── auth.py               # JWT + PBKDF2 password hashing
-│       ├── alert_service.py      # rule eval, dedup, state machine
+│       ├── auth.py               # JWT (python-jose) + PBKDF2 password hashing
+│       ├── alert_service.py      # rule eval, dedup, state machine, escalations
+│       ├── anomaly_detector.py   # Z-score based anomaly detection
+│       ├── encryption.py         # Fernet-based at-rest encryption for SNMP secrets
 │       └── notifications/        # channel impls
 │           ├── base.py
 │           ├── slack.py
@@ -53,16 +56,23 @@ netops/
 │           └── webhook.py
 ├── web/                          # React 19 + TypeScript + Vite SPA
 │   ├── src/
-│   │   ├── pages/                # Dashboard, Topology, Devices, Checks, Alerts, Settings, TopologyHistory, LoginPage
-│   │   ├── components/           # NetworksConsole, NetworkPicker, TopologyDiff, ui/, layout/
+│   │   ├── pages/                # Dashboard, Topology, Devices, Checks, Alerts, Settings, TopologyHistory, LoginPage, DeviceDetail, NotFound
+│   │   ├── components/           # NetworksConsole, NetworkPicker, TopologyDiff, AnomalyBadge, ProfileConfirmModal, ui/, layout/
 │   │   ├── hooks/                # React Query hooks (useTopology, useDevices, useNetworks, useAuth, ...)
 │   │   └── api/                  # axios client + typed endpoints
 │   ├── vitest unit + playwright e2e
 ├── tests/                        # pytest + pytest-asyncio
 ├── docker/                       # compose, Dockerfiles, nginx
-├── scripts/                      # dev helpers (test.sh, migrate.py, simulate_devices.py, autofix.sh, run_backend.sh)
+│   ├── docker-compose.yml        # base production compose
+│   ├── docker-compose.override.yml  # dev overrides (mounts source, debug)
+│   ├── docker-compose.prod.yml   # production hardening override
+│   ├── Dockerfile.backend        # Python 3.11-slim + uvicorn
+│   ├── Dockerfile.frontend       # multi-stage Node → Nginx
+│   ├── nginx.conf                # reverse proxy + SSE + SPA fallback
+│   └── .env.example              # docker-specific env template
+├── scripts/                      # dev helpers (run_backend.sh, test.sh, migrate.py, simulate_devices.py, ...)
 ├── docs/                         # current docs (DEPLOYMENT.md, SNMP_TRAP_SETUP.md)
-└── docs_archive_2025/             # archived legacy plans (superseded — see README.md)
+└── docs_archive_2025/            # archived legacy plans (superseded — see README.md)
 ```
 
 ---
@@ -72,10 +82,13 @@ netops/
 | Concern | Where | Notes |
 |---|---|---|
 | SNMP walks, LLDP parse | `src/collector/{spike_snmp,snmp_poller,discovery}.py` | pysnmp is sync → wrap in `asyncio.to_thread` |
+| SNMP traps | `src/collector/snmp_trap_listener.py` | raw asyncio UDP + custom BER parser |
 | Topology graph | `src/collector/topology_builder.py` | NetworkX, delta detection |
 | Service checks | `src/collector/checks/*.py` + `scheduler.py` | stateless, `CheckResult` out |
+| Anomaly detection | `src/api/services/anomaly_detector.py` | Z-score, sliding window, wired into poller |
 | API | `src/collector/main.py` | all DB access through `src/storage/` |
-| Auth | `src/api/services/auth.py` | JWT cookie + Bearer |
+| Auth | `src/api/services/auth.py` | JWT (python-jose, HS256) cookie + Bearer, PBKDF2 password hashing |
+| Encryption | `src/api/services/encryption.py` | Fernet (cryptography) — NETOPS_ENCRYPTION_KEY env |
 | Alerts | `src/api/services/alert_service.py` + `notifications/` | fire-and-forget background; never block API |
 | Storage | `src/storage/database.py` (PostgreSQL) | Alembic migrations live in `storage/migrations/` |
 | Frontend | `web/src/` | API base = relative `/api` in prod (nginx proxy) |
@@ -86,6 +99,8 @@ netops/
 - **Checks** are stateless. Config in, `CheckResult` out.
 - **API** does all DB access through `src/storage/`. No raw SQL in route handlers.
 - **Notifications** are fire-and-forget background tasks.
+- **Anomaly detector** is optional — wired only when poller is active.
+- **Encryption** is transparent — encrypt_field/decrypt_field passthrough when NETOPS_ENCRYPTION_KEY is unset.
 - **Storage** migrations must be reversible — test `upgrade` + `downgrade`.
 
 ---
@@ -93,19 +108,76 @@ netops/
 ## Key Patterns
 
 - **Config**: `SNMPConfig` / `ServerConfig` / `NetOpsConfig` dataclasses from `collector/config.py`. No global state.
-- **DB bootstrap**: `main.py:87-120` connects to PostgreSQL (via `DATABASE_URL` or `POSTGRES_*` defaults). Auth and SNMP settings also read from DB (`db.get_settings()`) with env-var defaults.
-- **Poller pattern**: `SNMPPoller` + `CheckScheduler` + `SNMPTrapListener` started in `lifespan`. Trap listener exposes `configure()/start()/stop()`; PUT `/api/config/traps` restarts it.
-- **SSE streams**: `/topology/stream` (delta topology), `/events/stream` (device events + `trap_received`), `/poll-history/stream`. Subscriber queues live in module-level lists; drop on disconnect.
+- **DB bootstrap**: `main.py` connects to PostgreSQL (via `DATABASE_URL` or `POSTGRES_*` defaults). Auth and SNMP settings also read from DB (`db.get_settings()`) with env-var defaults. Alembic auto-migrates on startup (gate: `NETOPS_AUTO_MIGRATE`, default enabled).
+- **Poller pattern**: `SNMPPoller` + `CheckScheduler` + `SNMPTrapListener` started in `lifespan`. AnomalyDetector wired into poller for response-time anomaly detection. Trap listener exposes `configure()/start()/stop()`; PUT `/api/config/traps` restarts it.
+- **SSE streams**: `/topology/stream` (delta topology), `/events/stream` (device events + `trap_received` + `profile_guessed` + `network_changed` + `device_stale` + `devices_refresh` + rescan progress), `/poll-history/stream`. Subscriber queues live in module-level lists; drop on disconnect.
 - **Async SNMP**: pysnmp is sync. Wrap calls in `asyncio.to_thread` to avoid blocking the event loop. Trap listener uses raw asyncio UDP + custom BER parser.
 - **Error handling**: spike_snmp raises `SNMPRequestError` on poll timeouts / auth errors / parse errors. Poller's `_poll_device` catches it, sets `status='offline'` + `offline_since=now`, records the error in `poll_history`, and emits a `device_offline` SSE via `set_status_change_handler`. API returns 503 with retry headers. Trap listener drops malformed/mismatched-community packets silently.
-- **Auth**: JWT in cookie + `Authorization: Bearer`. `JWT_SECRET` env required, fail-fast — no fallback.
-- **Frontend API URL**: relative `/api` in production (nginx proxies). Direct backend URL in dev.
+- **Auth**: JWT in cookie + `Authorization: Bearer`. `JWT_SECRET` env required, fail-fast — no fallback. Uses `python-jose` library (HS256, 24h expiry).
+- **Encryption at rest**: SNMP community strings, SNMPv3 auth/priv keys encrypted via Fernet. Requires `NETOPS_ENCRYPTION_KEY` env. Passthrough when unset.
+- **Frontend API URL**: relative `/api` in production (nginx proxies). Direct backend URL in dev via `VITE_API_URL`.
 - **Environment profile**: `homelab` / `small_business` / `datacenter`. `detect_profile(n)` guesses on first boot (sets `is_guessed=true` until user confirms via `PUT /api/config/profile`). Poller + scheduler + retention loops re-read settings each tick — live update, no restart.
 - **Merge discovery**: `POST /api/discover/rescan { mode: "merge" }` (default) preserves manual devices, marks missing as `offline`, emits `device_stale` SSE at >72h. `mode: "replace"` keeps legacy wipe behavior. Stale devices get a "Remove or Keep" modal in the FE.
 - **New-network onboarding**: `_startup_auto_discover` reads `host_cidr`/`host_fingerprint` from `app_settings`; skips when fingerprint matches. On change/first boot, runs `rescan_and_merge` (default; `NETOPS_AUTO_DISCOVER_MODE=replace` for legacy wipe), registers a `networks` row for the new CIDR, persists the new fingerprint, and emits `profile_guessed` SSE **after** the scan. `NetworkWatcher` re-runs the same check at runtime (`NETOPS_NETWORK_CHECK_INTERVAL`, default 60s). `PUT /api/config/profile {confirmado: true}` sets `profile_confirmed=true` so the FE `is_guessed` flag clears; `confirmado: false` is a preview-only update of `profile_guess`.
 - **Device status SSE**: `SNMPPoller` tracks `last_status[device_id]` and emits `device_online` / `device_offline` SSE on transitions via `set_status_change_handler` (wired in `lifespan`). FE `useDeviceEvents` invalidates `['devices']` + `['topology']` on these events.
 - **Per-type check intervals**: `ServiceCheckCreate.interval_seconds` auto-populates from profile defaults via Pydantic `field_validator(mode="before")`. `GET /api/checks/defaults` returns the live matrix.
-- **Startup auto-discover**: `main.py:290-504` detects host CIDR, compares fingerprint, skips on match or runs `rescan_and_merge` (default) / `rescan_and_replace` (env `NETOPS_AUTO_DISCOVER_MODE`). Registers `networks` row, persists host fingerprint, emits `profile_guessed` SSE after scan.
+- **Startup auto-discover**: `main.py` detects host CIDR, compares fingerprint, skips on match or runs `rescan_and_merge` (default) / `rescan_and_replace` (env `NETOPS_AUTO_DISCOVER_MODE`). Registers `networks` row, persists host fingerprint, emits `profile_guessed` SSE after scan.
+- **Anomaly detection**: Z-score based, sliding window (default 100 samples, threshold 3.0). Poller feeds response times into detector. `GET /api/anomalies`, `GET /api/anomalies/{metric_type}/{target_id}`, `GET /api/anomalies/baseline/{metric_type}/{target_id}`.
+
+---
+
+## Database Tables
+
+| Table | Key Columns | Notes |
+|---|---|---|
+| `devices` | id, name, ip_address (unique), community, status, sys_descr, discovery_method, node_type, snmp_version, snmpv3_*, network_id, offline_since, last_scanned, last_polled | Community + SNMPv3 fields encrypted at rest |
+| `topology_nodes` | id, device_id, network_id, label, node_type, status, level, parent_id, role | BFS hierarchy from infra rank |
+| `topology_links` | id, source_id, target_id, network_id, source_port, target_port, status | LLDP-derived |
+| `poll_history` | id, device_id, status, response_time_ms, error, polled_at | Auto-cleanup at retention interval |
+| `alert_configs` | id, name, alert_type, channel, config_json, integration_id, enabled, escalation_minutes, escalated_severity | Integration secrets merged at dispatch time |
+| `alert_history` | id, alert_config_id, triggered_at, resolved_at, message, status | State machine: firing→acknowledged→resolved |
+| `users` | id, username (unique), email (unique), name, password_hash, role, created, created_at | Default admin/admin bootstrapped on first run |
+| `app_settings` | key (PK), value, updated | host_cidr, host_fingerprint, profile, profile_guess, profile_confirmed |
+| `topology_history` | id, event_type, node_id, link_id, source_ip, old_status, new_status, details, recorded_at | Change audit log |
+| `integrations` | id, type, name, secrets_json, enabled, unique(type,name) | Slack, Telegram, WhatsApp, Email, Webhook |
+| `service_checks` | id, name, check_type, target, interval_seconds, timeout_seconds, config_json, enabled | Intervals auto-populated from profile defaults |
+| `check_results` | id, check_id, status, response_time_ms, message, details, error, checked_at | Retention: 24h in memory, then DB |
+| `networks` | id, name (unique), cidr, description, is_default, network_type, tags, last_scanned | Auto-registered on startup auto-discover |
+| `maintenance_windows` | id, name, start_time, end_time, description, created_at | Alerts suppressed during active windows |
+
+---
+
+## Environment Variables
+
+| Var | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | — | Override full PG connection string (priority over POSTGRES_*) |
+| `POSTGRES_HOST` | localhost | PostgreSQL host |
+| `POSTGRES_PORT` | 5432 | PostgreSQL port |
+| `POSTGRES_DB` | netops | PostgreSQL database name |
+| `POSTGRES_USER` | netops | PostgreSQL user |
+| `POSTGRES_PASSWORD` | netops | PostgreSQL password |
+| `NETOPS_USE_SQLITE` | 0 | Opt-in SQLite fallback |
+| `NETOPS_SQLITE_PATH` | data/netops.db | SQLite path override |
+| `JWT_SECRET` | **required, fail-fast** | JWT signing key (python-jose HS256) |
+| `NETOPS_COOKIE_SECURE` | 0 | Set cookie secure flag (1 for HTTPS prod) |
+| `NETOPS_ENCRYPTION_KEY` | — | Fernet key for at-rest SNMP credential encryption |
+| `SNMP_HOST` | 127.0.0.1 | Default SNMP agent host |
+| `SNMP_COMMUNITY` | public | Default SNMPv2c community |
+| `SNMP_TIMEOUT` | 5 | SNMP timeout seconds |
+| `SNMP_RETRIES` | 3 | SNMP retry count |
+| `SERVER_HOST` | 0.0.0.0 | Uvicorn bind address |
+| `SERVER_PORT` | 8000 | Uvicorn bind port |
+| `NETOPS_AUTO_MIGRATE` | 1 | Run alembic upgrade head on startup |
+| `NETOPS_REQUIRE_MIGRATIONS` | 0 | Fail hard if migrations fail |
+| `NETOPS_AUTO_DISCOVER_MODE` | merge | merge or replace |
+| `NETOPS_NETWORK_CHECK_INTERVAL` | 60 | NetworkWatcher cadence (seconds) |
+| `NETOPS_PHASE4_PARTITIONED_HISTORY` | 0 | Opt-in to partitioned history tables |
+| `PG_POOL_MIN` | 4 | Min connection pool size |
+| `PG_POOL_MAX` | 25 | Max connection pool size |
+| `PG_COMMAND_TIMEOUT` | 60 | Query timeout seconds |
+| `LOG_LEVEL` | INFO | Python log level |
+| `VITE_API_URL` | /api | Frontend API base URL (set at build time) |
 
 ---
 
@@ -165,7 +237,7 @@ pip install -r requirements.txt
 ./scripts/run_backend.sh
 
 # Frontend
-cd web && npm install && npm run dev          # http://localhost:3000
+cd web && npm install && npm run dev          # https://localhost:3000
 
 # Backend tests
 pytest tests/ -v
@@ -183,8 +255,11 @@ cd web && npm run build                        # tsc -b && vite build
 alembic -c src/storage/alembic.ini upgrade head
 alembic -c src/storage/alembic.ini revision --autogenerate -m "describe_change"
 
-# Docker
+# Docker (dev)
 docker compose -f docker/docker-compose.yml up --build
+
+# Docker (production)
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --build
 ```
 
 ---
@@ -242,20 +317,23 @@ Load via `skill` tool or read the `SKILL.md` directly. Pick the most specific ma
 
 ## Security Posture
 
-- SNMP community strings + SNMPv3 keys in `.env` only. Never commit. `.env.example` for template.
+- SNMP community strings + SNMPv3 keys encrypted at rest via Fernet (`NETOPS_ENCRYPTION_KEY` env). Never commit `.env` files. `.env.example` for template.
 - SSL check validates cert chains — never disable verification.
 - Notification credentials (Twilio, SMTP, Telegram bot token) are env vars. Validate in `config.py`.
 - SQLite path is relative (`data/netops.db`). Ensure directory exists on startup.
 - Never bind to `0.0.0.0` in production without a reverse proxy (nginx in `docker/`).
 - Default admin bootstrap (`admin/admin`) is auto-created on first run. Force password change or disable before exposing.
+- JWT secret required, fail-fast on missing `JWT_SECRET`.
 
 ---
 
 ## Troubleshooting
 
 - `ModuleNotFoundError` → check venv activated (`source .venv/bin/activate`) and `pip install -r requirements.txt`.
+- `ModuleNotFoundError: jose` → add `python-jose` to requirements.txt (not included in base deps).
 - SNMP timeouts → check `SNMP_TIMEOUT` env (default 5s); tune `SNMP_RETRIES` (default 3). Verify target reachable.
 - DB locked / async deadlock on SQLite → use `db_client` session wrapper, don't open parallel connections.
 - WebSocket / SSE disconnect → topology stream auto-reconnects client-side; server drops queues on disconnect.
 - Frontend can't reach backend in dev → set `VITE_API_URL` or rely on Vite proxy in `vite.config.ts`.
-- Stale mock devices on startup → `_startup_auto_discover` in `main.py:115-188` wipes `simulated` discovery_method + known mock names; check logs for `Auto-removed N stale mock devices`.
+- Stale mock devices on startup → `_startup_auto_discover` in `main.py` wipes `simulated` discovery_method + known mock names; check logs for `Auto-removed N stale mock devices`.
+- Encryption failures → ensure `NETOPS_ENCRYPTION_KEY` is set and matches across restarts. Generate with: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
