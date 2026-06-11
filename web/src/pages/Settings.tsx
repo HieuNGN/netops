@@ -21,6 +21,7 @@ import {
   getFieldsForType,
   HINTS,
 } from "../lib/integrations";
+import { useEnvironmentProfiles, useSetProfile } from "../hooks/useConfig";
 
 export function Settings() {
   const { theme, setTheme } = useTheme();
@@ -57,6 +58,10 @@ export function Settings() {
     {},
   );
 
+  const { activeProfile, isGuessed: profileGuessed } = useEnvironmentProfiles();
+  const setProfile = useSetProfile();
+  const [selectedProfile, setSelectedProfile] = useState(activeProfile);
+
   useEffect(() => {
     setLocalTheme(theme);
   }, [theme]);
@@ -85,6 +90,10 @@ export function Settings() {
       })
       .catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    setSelectedProfile(activeProfile);
+  }, [activeProfile]);
 
   const handleThemeChange = (newTheme: "light" | "dark" | "system") => {
     setLocalTheme(newTheme);
@@ -244,6 +253,43 @@ export function Settings() {
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="bg-card rounded-sm shadow-sm border border-border p-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-xs font-semibold text-foreground">
+                Environment Profile
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Optimizes polling intervals, check defaults, and retention policies.
+              </p>
+            </div>
+            {profileGuessed && (
+              <span className="px-2 py-0.5 text-[10px] rounded bg-badge-warning-bg text-badge-warning-fg font-medium">
+                Auto-detected
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={selectedProfile}
+              onChange={(e) => setSelectedProfile(e.target.value)}
+              className="flex-1 px-3 py-2 border border-input bg-card text-foreground rounded-sm focus:ring-1 focus:ring-[#da1e28]"
+            >
+              <option value="homelab">Homelab (&le;15 devices, 30s polls)</option>
+              <option value="small_business">Small Business (&le;80 devices, 60s polls)</option>
+              <option value="datacenter">Datacenter (unlimited, 60s polls)</option>
+            </select>
+            <button
+              onClick={() => setProfile.mutate({ profile: selectedProfile })}
+              disabled={setProfile.isPending || selectedProfile === activeProfile}
+              className="flex items-center gap-2 px-4 py-2 bg-cisco-blue text-white rounded-sm hover:bg-cisco-blue-hover disabled:opacity-50 text-xs"
+            >
+              <Check className="h-3.5 w-3.5" />
+              <span>Apply</span>
+            </button>
           </div>
         </div>
 
