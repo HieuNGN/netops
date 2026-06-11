@@ -236,11 +236,9 @@ class SNMPPoller:
         discovery_method = device.get("discovery_method", "snmp")
 
         # Determine if device supports SNMP polling.
-        # Skip SNMP if no snmp_version configured and no community string.
-        has_snmp = bool(
-            device.get("snmp_version") in ("v2c", "v3")
-            or (device.get("community") and str(device.get("community")).strip())
-        )
+        # Require explicit snmp_version — a bare community string alone
+        # (e.g. default "public" on manual devices) does NOT mean SNMP.
+        has_snmp = device.get("snmp_version") in ("v2c", "v3")
 
         if not has_snmp:
             # Non-SNMP device: lightweight TCP reachability check
