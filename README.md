@@ -16,39 +16,54 @@ Network topology discovery, real-time monitoring, and management console — bui
 - **Network Management Console** — slide-out drawer for renaming, typing (11 types), tagging, per-network device counts
 - **Service Checks** — HTTP, TCP, DNS, Ping, SSL cert expiry monitoring with configurable intervals
 - **Multi-Channel Alerts** — Slack, Telegram, WhatsApp, Email, Webhook with deduplication and maintenance windows
-- **Database** — async PostgreSQL with connection pooling; SQLite fallback for dev
+- **Database** — async PostgreSQL with connection pooling
 - **Docker** — production-ready multi-container deployment (backend, frontend, nginx)
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-- Docker + Docker Compose
-
-### Run
+Requires **Docker + Docker Compose**.
 
 ```bash
-cd docker
-docker compose up -d --build
+# Clone and enter the project
+git clone https://github.com/HieuNGN/netops.git
+cd netops
+
+# Copy env template (edit is optional)
+cp docker/.env.example docker/.env
+
+# Build and start everything
+./docker/build.sh dev
 ```
 
 | Service | URL |
 |---------|-----|
-| Dashboard | http://localhost:80 |
+| Dashboard | http://localhost |
 | API docs | http://localhost:8000/docs |
+| Prometheus metrics | http://localhost:8000/metrics |
 
-Default admin: `admin` / `admin`. Rotate before exposing.
+Default admin: `admin` / `admin`. Account creation is optional
 
-Dev setup (venv + Vite) → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+### Fast start script (super handy)
+
+`docker/build.sh` wraps compose for the usual workflow:
+
+```bash
+./docker/build.sh dev     # dev build with live-reload overrides
+./docker/build.sh prod    # production build
+./docker/build.sh logs    # tail all service logs
+./docker/build.sh stop    # stop containers
+./docker/build.sh clean   # stop and remove containers + volumes
+```
 
 ---
 
 ## Documentation
 
-- [API Reference](docs/API_REFERENCE.md) — endpoints, types, channels
-- [Deployment](docs/DEPLOYMENT.md) — production setup
+- [docker/README.md](docker/README.md) — Docker build, dev/prod modes, env reference
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — detailed deployment guide
+- [docs/API_REFERENCE.md](docs/API_REFERENCE.md) — endpoints, types, channels
 
 ---
 
@@ -57,49 +72,67 @@ Dev setup (venv + Vite) → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 ```
 netops/
 ├── src/
-│   ├── collector/            # FastAPI app + SNMP engine
-│   │   ├── main.py           # API routes, models, lifespan
-│   │   ├── snmp_poller.py    # periodic polling orchestrator
-│   │   ├── spike_snmp.py     # low-level SNMP queries (snmpwalk/get)
-│   │   ├── topology_builder.py # LLDP → node/link graph
-│   │   ├── discovery.py      # subnet scanner (ICMP + SNMP)
-│   │   ├── config.py         # server configuration
-│   │   ├── utils.py          # logging
-│   │   └── checks/           # service check engine
-│   │       ├── base.py       # abstract check + result classes
+│   ├── collector/                # FastAPI app + SNMP engine
+│   │   ├── main.py               # API routes, Pydantic models, lifespan, SSE
+│   │   ├── snmp_poller.py        # periodic SNMP polling orchestrator
+│   │   ├── snmp_trap_listener.py # UDP trap receiver + SSE broadcast
+│   │   ├── spike_snmp.py         # low-level SNMP queries (snmpwalk/get)
+│   │   ├── topology_builder.py   # LLDP → node/link graph
+│   │   ├── discovery.py          # subnet scanner (ICMP + SNMP)
+│   │   ├── host_detect.py        # auto-detect host IP/CIDR/gateway
+│   │   ├── host_state.py         # host network fingerprint
+│   │   ├── network_watcher.py    # runtime network-change detector
+│   │   ├── config.py             # server configuration
+│   │   ├── utils.py              # logging
+│   │   └── checks/               # service check engine
+│   │       ├── base.py
 │   │       ├── http_check.py
 │   │       ├── tcp_check.py
 │   │       ├── dns_check.py
 │   │       ├── ping_check.py
 │   │       ├── ssl_check.py
-│   │       └── scheduler.py  # single-tick check loop
+│   │       └── scheduler.py      # single-tick check loop
 │   ├── storage/
-│   │   ├── database.py       # async PostgreSQL client
-│   │   ├── sqlite_client.py  # async SQLite fallback
-│   │   ├── alembic.ini       # migration config
-│   │   └── migrations/       # Alembic revisions
+│   │   ├── database.py           # async PostgreSQL client
+│   │   ├── sqlite_client.py      # async SQLite fallback
+│   │   ├── alembic.ini           # migration config
+│   │   └── migrations/           # Alembic revisions
 │   └── api/services/
-│       ├── alert_service.py  # alert eval, dedup, state machine
-│       └── notifications/    # channel implementations
+│       ├── alert_service.py      # alert eval, dedup, state machine
+│       ├── anomaly_detector.py   # Z-score based anomaly detection
+│       ├── auth.py               # JWT + PBKDF2 password hashing
+│       ├── encryption.py         # Fernet at-rest encryption
+│       └── notifications/        # channel implementations
 │           ├── base.py
 │           ├── slack.py
 │           ├── telegram.py
 │           ├── whatsapp.py
 │           ├── email.py
 │           └── webhook.py
-├── web/                      # React + TypeScript frontend
+├── web/                          # React 19 + TypeScript + Vite SPA
 │   ├── src/
-│   │   ├── pages/            # Dashboard, Topology, Devices, Checks, Alerts, Settings
-│   │   ├── components/       # NetworksConsole, NetworkPicker, InlineEditableField, TagChips, etc.
-│   │   ├── hooks/            # React Query hooks (useNetworks, useDevices, useTopology, etc.)
-│   │   ├── api/              # axios client + typed endpoints
-│   │   └── layouts/          # sidebar nav + shell
+│   │   ├── pages/                # Dashboard, Topology, Devices, Checks, Alerts, Settings, ...
+│   │   ├── components/           # NetworksConsole, NetworkPicker, TopologyDiff, ui/, layout/
+│   │   ├── hooks/                # React Query hooks (useTopology, useDevices, useAuth, ...)
+│   │   ├── api/                  # axios client + typed endpoints
+│   │   ├── lib/                  # shared helpers (e.g. integrations)
+│   │   └── test/                 # test setup
+│   ├── tests/e2e/                # Playwright end-to-end tests
 │   ├── package.json
-│   └── vite.config.ts
-├── tests/                    # pytest unit + integration tests
-├── docker/                   # production compose + nginx
-├── scripts/                  # dev helpers (test.sh, migrate.py, simulate_devices.py)
-└── docs/                     # plans, specs, guides
+│   ├── vite.config.ts
+│   └── playwright.config.ts
+├── tests/                        # pytest + pytest-asyncio
+├── docker/                       # compose, Dockerfiles, nginx, build script
+│   ├── build.sh                  # quick docker build/start helper
+│   ├── docker-compose.yml
+│   ├── docker-compose.override.yml
+│   ├── docker-compose.prod.yml
+│   ├── Dockerfile.backend
+│   ├── Dockerfile.frontend
+│   ├── nginx.conf
+│   └── .env.example
+├── scripts/                      # dev helpers (test.sh, migrate.py, simulate_devices.py, ...)
+└── docs/                         # plans, specs, guides
 ```
 
 ---
@@ -117,7 +150,7 @@ netops/
 | Network management | Done | slide-out drawer, 11 types, inline rename, tags, device counts |
 | Poll history retention | Done | 30-day TTL, hourly cleanup loop |
 | LLDP correlation | Done | multi-strategy matching (IP, name, substring) |
-| Docker | Building | multi-container compose, nginx, health checks |
+| Docker | Consolidated | multi-container compose, nginx, health checks |
 | Auth & RBAC | Done | JWT login, protected routes, admin bootstrap |
 | Dynamic config | Done | settings → DB → poller read on startup |
 | SNMPv3 | Done | UsmUserData, auth/priv protocols, per-device version |
@@ -127,17 +160,3 @@ netops/
 | SNMP trap listener | Done | UDP trap receiver, linkUp/linkDown events, SSE broadcast |
 | Cookie-only auth | Done | HttpOnly + SameSite=Strict + Secure cookies |
 | Distributed agents | Planned | remote pollers, central aggregator |
-
----
-
-## CLI
-
-```bash
-# Single-device SNMP query
-python src/collector/spike_snmp.py <host> [-c community] [--action sysdescr|lldp|all]
-
-# Simulate topology (offline demo)
-curl -X POST http://localhost:8000/topology/simulate
-```
-
----
