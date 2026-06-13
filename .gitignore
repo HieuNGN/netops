@@ -84,7 +84,7 @@ config/
 
 # --- Docs (internal plans) ---
 # docs/
-docs_archive_2025/
+# docs_archive_2025/
 
 # --- IDE state ---
 .obsidian/
