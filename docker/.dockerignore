@@ -1,31 +1,49 @@
+# NetOps .dockerignore
+# Placed in project root to reduce build context size
+
 # Git
-.git
+.git/
 .gitignore
 
-# Python
-__pycache__
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-.venv
-env
-venv
-ENV
-.eggs
-*.egg-info
-.pytest_cache
-.coverage
-htmlcov
+*.pyo
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
 
-# Node
-node_modules
-npm-debug.log
-yarn-error.log
+# Environment & secrets
+.env
+.env.*
+!.env.example
+web/.env
+web/.env.*
 
-# IDE
-.idea
-.vscode
+# Database files (local SQLite)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Node modules and build outputs
+node_modules/
+web/node_modules/
+web/dist/
+web/build/
+*.tsbuildinfo
+
+# IDE & editor
+.claude/
+.obsidian/
+.idea/
+.vscode/
 *.swp
 *.swo
 *~
@@ -34,23 +52,26 @@ yarn-error.log
 .DS_Store
 Thumbs.db
 
-# Data
-data/*.db
-data/*.db-wal
-data/*.db-shm
+# Docs (internal plans)
+docs/
 
 # Logs
 *.log
-logs/
+/tmp/
 
-# Test
-tests/
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
 .pytest_cache/
 
-# Docs
-docs/
-*.md
-!requirements.txt
+# Docker itself (avoid recursion)
+docker/.env
+docker/.env.*
+docker/*.log
 
-# Docker
-docker/
+# Scripts that are dev-only (optional; keep if needed in image)
+# scripts/autofix.sh
+
+# Skills symlink
+skills/

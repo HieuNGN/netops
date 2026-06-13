@@ -6,7 +6,7 @@
 cd docker
 cp .env.example .env
 # Edit .env — set strong JWT_SECRET and POSTGRES_PASSWORD
-JWT_SECRET=dev docker compose up -d --build
+docker compose up -d --build
 ```
 
 - Frontend → http://localhost

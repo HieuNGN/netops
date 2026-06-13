@@ -25,38 +25,23 @@ Network topology discovery, real-time monitoring, and management console — bui
 
 ### Prerequisites
 
-- Python 3.11+, Node.js 20+, npm
-- (Optional) PostgreSQL 15+ for production; SQLite used automatically otherwise
+- Docker + Docker Compose
 
-### Backend
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn src.collector.main:app --host 0.0.0.0 --port 8000
-```
-
-API docs → http://localhost:8000/docs
-
-### Frontend
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Dashboard → http://localhost:3000
-
-### Docker
+### Run
 
 ```bash
 cd docker
 docker compose up -d --build
-# Frontend → http://localhost:80
-# API      → http://localhost:8000/docs
 ```
+
+| Service | URL |
+|---------|-----|
+| Dashboard | http://localhost:80 |
+| API docs | http://localhost:8000/docs |
+
+Default admin: `admin` / `admin`. Rotate before exposing.
+
+Dev setup (venv + Vite) → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 ---
 

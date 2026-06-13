@@ -62,14 +62,15 @@ netops/
 │   │   └── api/                  # axios client + typed endpoints
 │   ├── vitest unit + playwright e2e
 ├── tests/                        # pytest + pytest-asyncio
-├── docker/                       # compose, Dockerfiles, nginx
+├── docker/                       # compose, Dockerfiles, nginx, env template
 │   ├── docker-compose.yml        # base production compose
 │   ├── docker-compose.override.yml  # dev overrides (mounts source, debug)
 │   ├── docker-compose.prod.yml   # production hardening override
 │   ├── Dockerfile.backend        # Python 3.11-slim + uvicorn
 │   ├── Dockerfile.frontend       # multi-stage Node → Nginx
 │   ├── nginx.conf                # reverse proxy + SSE + SPA fallback
-│   └── .env.example              # docker-specific env template
+│   ├── .env.example              # docker-specific env template
+│   └── README.md                 # docker build/dev/prod guide
 ├── scripts/                      # dev helpers (run_backend.sh, test.sh, migrate.py, simulate_devices.py, ...)
 ├── docs/                         # current docs (DEPLOYMENT.md, SNMP_TRAP_SETUP.md)
 └── docs_archive_2025/            # archived legacy plans (superseded — see README.md)
@@ -177,7 +178,7 @@ netops/
 | `PG_POOL_MAX` | 25 | Max connection pool size |
 | `PG_COMMAND_TIMEOUT` | 60 | Query timeout seconds |
 | `LOG_LEVEL` | INFO | Python log level |
-| `VITE_API_URL` | /api | Frontend API base URL (set at build time) |
+| `VITE_API_URL` | /api | Frontend API base URL (set at build time). Empty for production Docker builds (nginx proxy handles /api). /api for dev Vite proxy. |
 
 ---
 
@@ -255,11 +256,8 @@ cd web && npm run build                        # tsc -b && vite build
 alembic -c src/storage/alembic.ini upgrade head
 alembic -c src/storage/alembic.ini revision --autogenerate -m "describe_change"
 
-# Docker (dev)
-docker compose -f docker/docker-compose.yml up --build
-
-# Docker (production)
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --build
+# Docker — see docker/README.md (build, dev, prod, env setup)
+cd docker && docker compose up -d --build
 ```
 
 ---
@@ -317,7 +315,7 @@ Load via `skill` tool or read the `SKILL.md` directly. Pick the most specific ma
 
 ## Security Posture
 
-- SNMP community strings + SNMPv3 keys encrypted at rest via Fernet (`NETOPS_ENCRYPTION_KEY` env). Never commit `.env` files. `.env.example` for template.
+- SNMP community strings + SNMPv3 keys encrypted at rest via Fernet (`NETOPS_ENCRYPTION_KEY` env). Never commit `.env` files. Docker template is `docker/.env.example`.
 - SSL check validates cert chains — never disable verification.
 - Notification credentials (Twilio, SMTP, Telegram bot token) are env vars. Validate in `config.py`.
 - SQLite path is relative (`data/netops.db`). Ensure directory exists on startup.

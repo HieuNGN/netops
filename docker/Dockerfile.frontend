@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Accept build-time env var for API URL (default: /api for same-origin proxy)
-ARG VITE_API_URL=/api
+ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 
 # Copy package files first for better layer caching
